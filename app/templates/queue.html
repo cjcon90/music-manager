@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Import Queue — music-manager{% endblock %}
+{% block content %}
+
+<div style="display:flex;flex-direction:column;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+
+  <!-- Active -->
+  <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--bg-secondary)">
+    <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;width:56px;flex-shrink:0">Active</div>
+    {% if active %}
+    <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0;animation:pulse 1.5s ease-in-out infinite"></span>
+      <span class="mono" style="font-size:11px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ active.path }}</span>
+    </div>
+    <span class="text-tertiary" style="font-size:10px;flex-shrink:0">{{ ((now - active.since) / 60) | int }}m</span>
+    {% else %}
+    <span class="text-tertiary" style="font-size:11px">Watcher idle</span>
+    {% endif %}
+  </div>
+
+  <!-- Pending header -->
+  <div style="padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg-secondary);display:flex;align-items:center;gap:10px">
+    <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;width:56px;flex-shrink:0">Pending</div>
+    <span class="text-tertiary" style="font-size:11px">{{ queued | length }} item{{ 's' if queued | length != 1 }}</span>
+  </div>
+
+  {% if queued %}
+  {% for item in queued %}
+  <div style="padding:10px 16px;border-bottom:1px solid {% if not loop.last %}var(--border){% else %}transparent{% endif %};display:flex;align-items:center;gap:10px">
+    <div style="width:56px;flex-shrink:0"></div>
+    <span class="mono text-secondary" style="font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ item.path }}</span>
+    <span class="text-tertiary" style="font-size:10px;flex-shrink:0">{{ item.mtime | int | datetimeformat }}</span>
+    <form method="post" action="{{ url_for('queue.remove') }}" style="flex-shrink:0">
+      <input type="hidden" name="fname" value="{{ item.name }}">
+      <button type="submit" class="btn btn-secondary" style="padding:2px 8px;font-size:11px;color:var(--text-tertiary)" title="Remove from queue">✕</button>
+    </form>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="text-tertiary" style="text-align:center;padding:32px;font-size:12px">Nothing pending.</div>
+  {% endif %}
+
+</div>
+
+{% if completed %}
+<div style="margin-top:24px">
+  <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Recently Completed</div>
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+    {% for item in completed | reverse %}
+    <div style="padding:10px 16px;border-bottom:1px solid {% if not loop.last %}var(--border){% else %}transparent{% endif %};display:flex;align-items:center;gap:10px">
+      {% if item.status == 'imported' %}
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0"></span>
+      {% elif item.status == 'failed' %}
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--amber);flex-shrink:0"></span>
+      {% else %}
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--text-tertiary);flex-shrink:0"></span>
+      {% endif %}
+      <span class="mono text-secondary" style="font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ item.path }}">{{ item.name }}</span>
+      <span class="text-tertiary" style="font-size:10px;flex-shrink:0">
+        {% if item.status == 'imported' %}Imported
+        {% elif item.status == 'failed' %}Failed
+        {% else %}In Library{% endif %}
+      </span>
+      <span class="text-tertiary" style="font-size:10px;flex-shrink:0">{{ item.ts | int | datetimeformat }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if active %}
+<style>
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+</style>
+<script>setTimeout(() => location.reload(), 5000)</script>
+{% endif %}
+
+{% endblock %}

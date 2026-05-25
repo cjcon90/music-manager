@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Failed Imports — music-manager{% endblock %}
+{% block content %}
+
+<div style="display:flex;gap:6px;margin-bottom:16px">
+  <a href="{{ url_for('failed.index') }}"
+     class="btn {% if active_filter == 'all' %}btn-primary{% else %}btn-secondary{% endif %}"
+     style="padding:4px 12px;font-size:12px">
+    All ({{ counts.all }})
+  </a>
+  <a href="{{ url_for('failed.index', type='nomatch') }}"
+     class="btn {% if active_filter == 'nomatch' %}btn-primary{% else %}btn-secondary{% endif %}"
+     style="padding:4px 12px;font-size:12px;{% if active_filter != 'nomatch' %}color:#ff6464{% endif %}">
+    No match ({{ counts.nomatch }})
+  </a>
+  <a href="{{ url_for('failed.index', type='skipped') }}"
+     class="btn {% if active_filter == 'skipped' %}btn-primary{% else %}btn-secondary{% endif %}"
+     style="padding:4px 12px;font-size:12px;{% if active_filter != 'skipped' %}color:#f59e0b{% endif %}">
+    Skipped ({{ counts.skipped }})
+  </a>
+  <a href="{{ url_for('failed.index', type='error') }}"
+     class="btn {% if active_filter == 'error' %}btn-primary{% else %}btn-secondary{% endif %}"
+     style="padding:4px 12px;font-size:12px;{% if active_filter != 'error' %}color:#f87171{% endif %}">
+    Error ({{ counts.error }})
+  </a>
+</div>
+
+{% if entries %}
+<div style="border:1px solid rgba(255,255,255,0.1);border-radius:6px;overflow:hidden">
+  {% for entry in entries %}
+  <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;{% if not loop.last %}border-bottom:1px solid rgba(255,255,255,0.07);{% endif %}">
+    <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:
+      {%- if entry.kind == 'skipped' %}#f59e0b
+      {%- elif entry.kind == 'error' %}#f87171
+      {%- else %}#ff6464{% endif %}"></span>
+    <span style="flex:1;font-weight:500">{{ entry.name }}</span>
+    <span style="font-size:10px;opacity:0.5">
+      {%- if entry.kind == 'skipped' %}skipped
+      {%- elif entry.kind == 'error' %}pipeline error
+      {%- else %}no match{% endif -%}
+    </span>
+    {% if entry.kind in ('skipped', 'error') %}
+    <form method="post" action="{{ url_for('failed.requeue') }}" style="margin:0">
+      <input type="hidden" name="path" value="{{ entry.path }}">
+      <input type="hidden" name="line" value="{{ entry.line }}">
+      <button type="submit" class="btn btn-secondary" style="padding:3px 10px;font-size:11px;color:#7ec8e3">re-queue</button>
+    </form>
+    {% endif %}
+    <a href="{{ url_for('manual_match.index', stage_path=entry.path) }}" class="btn btn-secondary" style="padding:3px 10px;font-size:11px;color:#7ec8e3">manual match</a>
+    <form method="post" action="{{ url_for('failed.dismiss') }}" style="margin:0">
+      <input type="hidden" name="line" value="{{ entry.line }}">
+      <button type="submit" class="btn btn-secondary" style="padding:3px 10px;font-size:11px;opacity:0.4">dismiss</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-tertiary" style="text-align:center;padding:40px">No failed imports.</div>
+{% endif %}
+
+{% endblock %}

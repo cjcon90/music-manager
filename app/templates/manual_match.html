@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+{% block title %}Manual Match — music-manager{% endblock %}
+{% block content %}
+
+<div style="margin-bottom:12px;display:flex;align-items:center;gap:8px">
+  <a href="{{ url_for('failed.index') }}" class="text-secondary" style="font-size:12px;text-decoration:none">← Failed Imports</a>
+  <span class="text-tertiary">/</span>
+  <span style="font-size:12px">Manual Match</span>
+  <div style="flex:1"></div>
+  <span class="mono text-tertiary" style="font-size:10px">{{ stage_path }}</span>
+</div>
+
+<div style="display:grid;grid-template-columns:280px 1fr;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;min-height:400px">
+
+  <!-- LEFT: Controls -->
+  <div style="border-right:1px solid var(--border);padding:14px;display:flex;flex-direction:column;gap:14px;background:var(--bg-secondary)">
+
+    <form method="post" action="{{ url_for('manual_match.search') }}">
+      <input type="hidden" name="stage_path" value="{{ stage_path }}">
+      <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Search Terms</div>
+      <input type="text" name="query" value="{{ query }}" style="width:100%;background:var(--bg-primary);border:1px solid var(--border-secondary);border-radius:4px;padding:7px 10px;color:var(--text-primary);font-size:12px;margin-bottom:6px">
+      <button type="submit" class="btn btn-primary" style="width:100%">Search MusicBrainz</button>
+    </form>
+
+    <div style="border-top:1px solid var(--border);padding-top:14px">
+      <form method="post" action="{{ url_for('manual_match.apply_by_id') }}">
+        <input type="hidden" name="stage_path" value="{{ stage_path }}">
+        <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Know the Release ID?</div>
+        <input type="text" name="mb_uuid" placeholder="Paste MusicBrainz UUID…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border-secondary);border-radius:4px;padding:7px 10px;color:var(--text-primary);font-size:11px;font-family:monospace;margin-bottom:6px">
+        <button type="submit" class="btn btn-secondary" style="width:100%">Apply by ID →</button>
+      </form>
+    </div>
+
+    <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:auto">
+      <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Fallback</div>
+      <button class="btn btn-secondary" style="width:100%" onclick='startImport({{ stage_path | tojson }}, null, true)'>Use as-is (no match)</button>
+      <div class="text-tertiary" style="font-size:10px;margin-top:4px;text-align:center">Imports without MusicBrainz tags</div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT: Candidates / Apply by ID result / SSE output -->
+  <div style="overflow-y:auto">
+
+    {% if apply_id_release %}
+      <!-- Apply by ID track comparison -->
+      <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;background:#0f1f0f;border-left:4px solid var(--green)">
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600">{{ apply_id_release.title }}</div>
+          <div class="text-secondary" style="font-size:11px">{{ apply_id_release.artist }} · {{ apply_id_release.year }} · {{ apply_id_release.country }}</div>
+        </div>
+        <button class="btn btn-success" onclick='startImport({{ stage_path | tojson }}, {{ apply_id_release.id | tojson }}, false)'>✓ Apply</button>
+      </div>
+      {% if track_rows %}
+      <div style="padding:8px 14px;background:var(--bg-tertiary)">
+        {% set matched = track_rows | selectattr('status', 'eq', 'match') | list | length %}
+        {% set diff = track_rows | selectattr('status', 'eq', 'diff') | list | length %}
+        {% set missing = track_rows | selectattr('status', 'eq', 'missing') | list | length %}
+        <span style="color:var(--green);font-size:11px">{{ matched }} matched</span>
+        {% if diff %} · <span style="color:var(--amber);font-size:11px">{{ diff }} title differs</span>{% endif %}
+        {% if missing %} · <span style="color:var(--red);font-size:11px">{{ missing }} missing from files</span>{% endif %}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 28px 1fr;padding:6px 14px;background:var(--bg-tertiary);border-bottom:1px solid var(--border)">
+        <div class="text-tertiary" style="font-size:10px;text-transform:uppercase">{% if using_cue %}CUE tracks{% else %}Your files{% endif %}</div>
+        <div></div>
+        <div class="text-tertiary" style="font-size:10px;text-transform:uppercase">MusicBrainz</div>
+      </div>
+      {% for row in track_rows %}
+      <div style="display:grid;grid-template-columns:1fr 28px 1fr;padding:6px 14px;border-bottom:1px solid #161616;align-items:center;{% if row.status == 'diff' %}background:#1a1500;{% elif row.status in ('missing','extra') %}background:#1a0a0a;{% endif %}">
+        {% if row.local %}
+        <div style="font-size:11px;color:{% if row.status == 'match' %}#ccc{% elif row.status == 'diff' %}#fde68a{% else %}#f87171{% endif %}">{{ row.local }}</div>
+        {% else %}
+        <div style="font-size:11px;color:var(--text-tertiary);font-style:italic">—</div>
+        {% endif %}
+        <div style="text-align:center;font-size:12px;color:{% if row.status == 'match' %}var(--green){% elif row.status == 'diff' %}var(--amber){% else %}var(--red){% endif %}">
+          {% if row.status == 'match' %}→{% elif row.status == 'diff' %}≈{% else %}✗{% endif %}
+        </div>
+        {% if row.mb %}
+        <div style="font-size:11px;color:{% if row.status == 'match' %}#ccc{% elif row.status == 'diff' %}#fde68a{% else %}#f87171{% endif %}">{{ row.mb }}</div>
+        {% else %}
+        <div style="font-size:11px;color:var(--text-tertiary);font-style:italic">—</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+      {% endif %}
+
+    {% elif candidates %}
+      <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div class="text-secondary" style="font-size:11px">{{ candidates | length }} candidates found</div>
+        <div class="text-tertiary" style="font-size:10px">sorted by match score</div>
+      </div>
+      {% for c in candidates %}
+      <div style="padding:12px 14px;border-bottom:1px solid var(--border);{% if loop.first %}background:#0f1f0f;border-left:3px solid var(--green);{% endif %}">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <div>
+            <div style="font-size:12px;font-weight:600">{{ c.title }}</div>
+            <div class="text-secondary" style="font-size:11px">{{ c.artist }}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:13px;font-weight:700;color:{% if c.score >= 80 %}var(--green){% elif c.score >= 50 %}var(--amber){% else %}var(--red){% endif %}">{{ c.score }}%</div>
+            <div class="text-tertiary" style="font-size:10px">{{ c.score_label }}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+          <span style="background:var(--bg-secondary);color:var(--text-secondary);padding:2px 8px;border-radius:3px;font-size:10px">{{ c.year or '—' }}</span>
+          {% if c.country %}<span style="background:var(--bg-secondary);color:var(--text-secondary);padding:2px 8px;border-radius:3px;font-size:10px">{{ c.country }}</span>{% endif %}
+          {% if c.label %}<span style="background:var(--bg-secondary);color:var(--text-secondary);padding:2px 8px;border-radius:3px;font-size:10px">{{ c.label }}</span>{% endif %}
+          <span style="background:var(--bg-secondary);color:var(--text-secondary);padding:2px 8px;border-radius:3px;font-size:10px">{{ c.track_count }} tracks</span>
+          {% if c.disambiguation %}<span style="background:var(--bg-secondary);color:var(--text-secondary);padding:2px 8px;border-radius:3px;font-size:10px;font-style:italic">{{ c.disambiguation }}</span>{% endif %}
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <button class="btn {% if loop.first %}btn-success{% else %}btn-secondary{% endif %}" style="flex:1" onclick='startImport({{ stage_path | tojson }}, {{ c.id | tojson }}, false)'>
+            {% if loop.first %}✓ {% endif %}Apply this match
+          </button>
+          {% if single_flac %}
+          <button class="btn btn-secondary" style="padding:5px 10px;font-size:10px;color:var(--amber)" onclick='startSplit({{ stage_path | tojson }}, {{ c.id | tojson }})'>⚡ Split</button>
+          {% endif %}
+          <a href="https://musicbrainz.org/release/{{ c.id }}" target="_blank" class="btn btn-secondary" style="padding:5px 10px;font-size:10px">MB →</a>
+          {% if c.track_rows or local_tracks %}
+          <button class="btn btn-secondary" style="padding:5px 10px;font-size:10px" onclick="toggleTracks('tracks-{{ loop.index }}', this)">▼ Tracks</button>
+          {% endif %}
+        </div>
+        {% if c.track_rows or local_tracks %}
+        <div id="tracks-{{ loop.index }}" style="display:none;border-top:1px solid var(--border);margin-top:6px">
+          {% if c.track_rows %}
+          {% for row in c.track_rows %}
+          <div style="display:grid;grid-template-columns:1fr 24px 1fr;padding:4px 0;border-bottom:1px solid #161616;align-items:center;{% if row.status == 'diff' %}background:#1a1500;{% elif row.status in ('missing','extra') %}background:#1a0a0a;{% endif %}">
+            <div style="font-size:11px;color:{% if row.status == 'match' %}#ccc{% elif row.status == 'diff' %}#fde68a{% else %}#f87171{% endif %}">{{ row.local or '—' }}</div>
+            <div style="text-align:center;font-size:11px;color:{% if row.status == 'match' %}var(--green){% elif row.status == 'diff' %}var(--amber){% else %}var(--red){% endif %}">{% if row.status == 'match' %}→{% elif row.status == 'diff' %}≈{% else %}✗{% endif %}</div>
+            <div style="font-size:11px;color:{% if row.status == 'match' %}#ccc{% elif row.status == 'diff' %}#fde68a{% else %}#f87171{% endif %}">{{ row.mb or '—' }}</div>
+          </div>
+          {% endfor %}
+          {% else %}
+          <div style="padding:4px 0 2px;border-bottom:1px solid var(--border)">
+            <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;padding:2px 0 4px">Your files ({% if using_cue %}CUE{% else %}stage{% endif %})</div>
+          </div>
+          {% for f in local_tracks %}
+          <div style="padding:3px 0;border-bottom:1px solid #161616">
+            <div style="font-size:11px;color:#aaa">{{ f }}</div>
+          </div>
+          {% endfor %}
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+
+    {% elif searched %}
+      <div class="text-tertiary" style="text-align:center;padding:40px">No candidates found. Try refining your search terms.</div>
+
+    {% else %}
+      <div class="text-tertiary" style="text-align:center;padding:40px">Search MusicBrainz or paste a Release ID to find a match.</div>
+    {% endif %}
+
+    <!-- SSE import output (hidden until apply is clicked) -->
+    <div id="import-panel" style="display:none;padding:14px">
+      <div class="text-secondary" style="font-size:12px;font-weight:600;margin-bottom:8px">Import progress</div>
+      <div id="import-output" class="log-output" style="height:200px"></div>
+      <div id="import-status" class="text-secondary" style="font-size:11px;margin-top:8px"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function toggleTracks(id, btn) {
+  const el = document.getElementById(id);
+  const hidden = el.style.display === 'none';
+  el.style.display = hidden ? 'block' : 'none';
+  btn.textContent = hidden ? '▲ Tracks' : '▼ Tracks';
+}
+
+async function startImport(stagePath, mbUuid, useAsIs) {
+  const panel = document.getElementById('import-panel');
+  const output = document.getElementById('import-output');
+  const status = document.getElementById('import-status');
+  panel.style.display = 'block';
+  panel.scrollIntoView({behavior: 'smooth', block: 'start'});
+  output.textContent = '';
+  status.textContent = 'Starting import…';
+  status.style.color = '';
+
+  const url = new URL('/manual-match/stream', window.location.origin);
+  url.searchParams.set('stage_path', stagePath);
+  if (mbUuid) url.searchParams.set('mb_uuid', mbUuid);
+  if (useAsIs) url.searchParams.set('use_as_is', '1');
+
+  let resp;
+  try {
+    resp = await fetch(url.toString());
+  } catch (e) {
+    status.textContent = 'Connection failed.';
+    status.style.color = 'var(--red)';
+    return;
+  }
+
+  if (resp.status === 409) {
+    status.textContent = 'Another import is already running — wait a moment and try again.';
+    status.style.color = 'var(--amber)';
+    return;
+  }
+  if (!resp.ok) {
+    status.textContent = 'Server error ' + resp.status + ' — check logs.';
+    status.style.color = 'var(--red)';
+    return;
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, {stream: true});
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const msg = line.slice(6);
+      output.textContent += msg + '\n';
+      output.scrollTop = output.scrollHeight;
+      if (msg === '[DONE]') { status.textContent = 'Import complete.'; return; }
+      if (msg.startsWith('[ERROR]')) { status.textContent = msg; status.style.color = 'var(--red)'; return; }
+    }
+  }
+  status.textContent = 'Stream ended.';
+}
+
+async function startSplit(stagePath, mbUuid) {
+  const panel = document.getElementById('import-panel');
+  const output = document.getElementById('import-output');
+  const status = document.getElementById('import-status');
+  panel.style.display = 'block';
+  panel.scrollIntoView({behavior: 'smooth', block: 'start'});
+  output.textContent = '';
+  status.textContent = 'Splitting FLAC by MusicBrainz track timings…';
+  status.style.color = 'var(--amber)';
+
+  const url = new URL('/manual-match/split-by-mb', window.location.origin);
+  url.searchParams.set('stage_path', stagePath);
+  url.searchParams.set('mb_uuid', mbUuid);
+
+  let resp;
+  try { resp = await fetch(url.toString()); }
+  catch (e) { status.textContent = 'Connection failed.'; status.style.color = 'var(--red)'; return; }
+
+  if (resp.status === 409) { status.textContent = 'Another operation is running — try again.'; return; }
+  if (!resp.ok) { status.textContent = 'Server error ' + resp.status; status.style.color = 'var(--red)'; return; }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, {stream: true});
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const msg = line.slice(6);
+      output.textContent += msg + '\n';
+      output.scrollTop = output.scrollHeight;
+      if (msg === '[DONE]') {
+        status.textContent = 'Split complete — reloading comparison…';
+        status.style.color = 'var(--green)';
+        setTimeout(() => document.querySelector('form[action*="search"]').submit(), 1000);
+        return;
+      }
+      if (msg.startsWith('[ERROR]')) { status.textContent = msg; status.style.color = 'var(--red)'; return; }
+    }
+  }
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Remove {{ album.album }} — music-manager{% endblock %}
+{% block content %}
+
+<div style="margin-bottom:16px">
+  <a href="{{ url_for('library.index') }}" class="text-secondary" style="font-size:12px;text-decoration:none">← Library</a>
+</div>
+
+<div style="max-width:520px">
+  <div style="margin-bottom:4px;font-weight:600">Remove: {{ album.album }}</div>
+  <div class="text-secondary" style="font-size:12px;margin-bottom:20px">{{ album.artist }} · {{ album.year or '—' }} · {{ album.tracks }} tracks</div>
+
+  <form method="post" action="{{ url_for('remove.execute', album_id=album.id) }}">
+
+    <div class="check-row" style="margin-bottom:20px;cursor:default">
+      <input type="checkbox" checked disabled style="accent-color:var(--blue)">
+      <div>
+        <div style="font-weight:500;font-size:13px">Library entry + music files</div>
+        <div class="text-secondary" style="font-size:11px">Removes from beets database and deletes files in /media/music</div>
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-danger" style="width:100%;padding:10px">Remove from library</button>
+
+    <div style="text-align:center;margin-top:10px">
+      <a href="{{ url_for('library.index') }}" class="text-tertiary" style="font-size:12px;text-decoration:none">Cancel</a>
+    </div>
+
+  </form>
+</div>
+
+{% endblock %}

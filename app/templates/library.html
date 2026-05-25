@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Library — music-manager{% endblock %}
+{% block content %}
+
+<div style="display:flex;gap:12px;margin-bottom:20px">
+  <div style="flex:1;background:rgba(126,200,227,0.08);border:1px solid rgba(126,200,227,0.2);border-radius:6px;padding:10px;text-align:center">
+    <div style="font-size:22px;font-weight:700;color:#7ec8e3">{{ album_count }}</div>
+    <div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px">Albums</div>
+  </div>
+  {% if need_attention > 0 %}
+  <a href="{{ url_for('failed.index') }}" style="flex:1;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:6px;padding:10px;text-align:center;text-decoration:none;display:block">
+    <div style="font-size:22px;font-weight:700;color:#f59e0b">{{ need_attention }}</div>
+    <div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px">Need Attention</div>
+  </a>
+  {% else %}
+  <div style="flex:1;background:rgba(74,222,128,0.05);border:1px solid rgba(74,222,128,0.15);border-radius:6px;padding:10px;text-align:center">
+    <div style="font-size:22px;font-weight:700;color:#4ade80">✓</div>
+    <div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px">All Clear</div>
+  </div>
+  {% endif %}
+  <div style="flex:1;background:{% if queue_active %}rgba(74,222,128,0.08){% else %}rgba(255,255,255,0.02){% endif %};border:1px solid {% if queue_active %}rgba(74,222,128,0.2){% else %}rgba(255,255,255,0.08){% endif %};border-radius:6px;padding:10px;text-align:center">
+    <div style="font-size:22px;font-weight:700;color:{% if queue_active %}#4ade80{% else %}rgba(255,255,255,0.2){% endif %}">{% if queue_active %}● Live{% else %}○ Idle{% endif %}</div>
+    <div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px">Queue</div>
+  </div>
+</div>
+
+<div class="search-bar">
+  <form method="get" action="{{ url_for('library.index') }}" style="display:flex;gap:8px;flex:1">
+    <input type="text" name="q" value="{{ query }}" placeholder="Search artist or album…">
+    <button type="submit" class="btn btn-primary">Search</button>
+    {% if query %}<a href="{{ url_for('library.index') }}" class="btn btn-secondary">Clear</a>{% endif %}
+  </form>
+</div>
+
+<table class="table">
+  <thead>
+    <tr>
+      <th style="width:60px"></th>
+      <th>Artist</th>
+      <th>Album</th>
+      <th>Year</th>
+      <th>Tracks</th>
+      <th>Format</th>
+      <th>MB</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for album in albums %}
+    <tr>
+      <td style="padding:6px 12px">
+        <img src="{{ url_for('album.art', album_id=album.id) }}"
+             class="album-art"
+             width="48" height="48"
+             alt="">
+      </td>
+      <td>{{ album.artist }}</td>
+      <td>{{ album.album }}</td>
+      <td class="text-secondary">{{ album.year or '—' }}</td>
+      <td class="text-secondary">{{ album.tracks }}</td>
+      <td class="mono text-secondary">{{ album.format }}</td>
+      <td>
+        {% if album.mb_albumid %}
+          <span class="mb-pill mb-pill--matched">MB</span>
+        {% else %}
+          <span class="mb-pill mb-pill--unmatched">—</span>
+        {% endif %}
+      </td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-secondary fix-art-btn"
+                data-album-id="{{ album.id }}"
+                style="padding:4px 10px;font-size:11px">Fix Art</button>
+        <a href="{{ url_for('remove.confirm', album_id=album.id) }}"
+           class="btn btn-danger"
+           style="padding:4px 10px;font-size:11px">Remove</a>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="8" class="text-tertiary" style="text-align:center;padding:24px">No albums found.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<script>
+document.querySelectorAll('.fix-art-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const id = btn.dataset.albumId;
+    const origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const resp = await fetch(`/album/${id}/fix-art`, {method: 'POST'});
+      const data = await resp.json();
+      if (data.ok) {
+        btn.textContent = '✓';
+        const img = btn.closest('tr').querySelector('.album-art');
+        if (img) img.src = `/album/${id}/art?v=${Date.now()}`;
+      } else {
+        btn.textContent = '✗';
+        console.error('Fix Art failed:', data.error);
+      }
+    } catch (e) {
+      btn.textContent = '✗';
+    }
+    setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 2000);
+  });
+});
+</script>
+
+{% endblock %}
