@@ -122,3 +122,28 @@ def requeue():
         if line:
             _dismiss_line(line)
     return redirect(url_for("failed.index"))
+
+
+@bp.route("/failed/dismiss-by-path", methods=["POST"])
+def dismiss_by_path():
+    """Dismiss the failed-import entry matching a given stage_path.
+
+    Called automatically by the manual-match UI after a successful import so the
+    album disappears from Failed Imports without the user having to click dismiss.
+    Returns 204 in all cases (no match is not an error).
+    """
+    path = request.form.get("path", "").strip()
+    if not path:
+        return "", 204
+    try:
+        with open(config.IMPORT_FAILED_LOG) as f:
+            lines = [line.rstrip() for line in f if line.strip()]
+    except FileNotFoundError:
+        return "", 204
+    for line in lines:
+        parts = line.split(" | ", 2)
+        line_path = (parts[2] if len(parts) == 3 else parts[1] if len(parts) == 2 else "").strip()
+        if line_path == path:
+            _dismiss_line(line)
+            break
+    return "", 204

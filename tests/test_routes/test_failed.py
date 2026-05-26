@@ -184,3 +184,40 @@ def test_failed_error_kind_in_counts(client, tmp_path):
     data = resp.data.decode()
     # The error count of 1 must appear alongside a filter label
     assert "error" in data.lower()
+
+
+# ---------------------------------------------------------------------------
+# dismiss-by-path
+# ---------------------------------------------------------------------------
+
+def test_dismiss_by_path_removes_matching_entry(client, tmp_path, monkeypatch):
+    log = tmp_path / "import.log"
+    log.write_text("2026-01-01 | nomatch | /data/downloads/some/album\n")
+    dismissed = tmp_path / "dismissed.log"
+    monkeypatch.setattr("app.config.IMPORT_FAILED_LOG", str(log))
+    monkeypatch.setattr("app.config.IMPORT_FAILED_DISMISSED_LOG", str(dismissed))
+    resp = client.post("/failed/dismiss-by-path", data={"path": "/data/downloads/some/album"})
+    assert resp.status_code == 204
+    assert "2026-01-01 | nomatch | /data/downloads/some/album" in dismissed.read_text()
+
+
+def test_dismiss_by_path_no_match_returns_204(client, tmp_path, monkeypatch):
+    log = tmp_path / "import.log"
+    log.write_text("2026-01-01 | nomatch | /data/downloads/other/album\n")
+    dismissed = tmp_path / "dismissed.log"
+    monkeypatch.setattr("app.config.IMPORT_FAILED_LOG", str(log))
+    monkeypatch.setattr("app.config.IMPORT_FAILED_DISMISSED_LOG", str(dismissed))
+    resp = client.post("/failed/dismiss-by-path", data={"path": "/data/downloads/some/album"})
+    assert resp.status_code == 204
+    assert not dismissed.exists()
+
+
+def test_dismiss_by_path_empty_path_returns_204(client):
+    resp = client.post("/failed/dismiss-by-path", data={"path": ""})
+    assert resp.status_code == 204
+
+
+def test_dismiss_by_path_missing_log_returns_204(client, tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.IMPORT_FAILED_LOG", str(tmp_path / "nonexistent.log"))
+    resp = client.post("/failed/dismiss-by-path", data={"path": "/data/downloads/some/album"})
+    assert resp.status_code == 204

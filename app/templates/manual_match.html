@@ -188,6 +188,7 @@ async function startImport(stagePath, mbUuid, useAsIs) {
   if (mbUuid) url.searchParams.set('mb_uuid', mbUuid);
   if (useAsIs) url.searchParams.set('use_as_is', '1');
 
+  let hadWarning = false;
   let resp;
   try {
     resp = await fetch(url.toString());
@@ -222,7 +223,16 @@ async function startImport(stagePath, mbUuid, useAsIs) {
       const msg = line.slice(6);
       output.textContent += msg + '\n';
       output.scrollTop = output.scrollHeight;
-      if (msg === '[DONE]') { status.textContent = 'Import complete.'; return; }
+      if (msg.startsWith('[WARNING]')) { hadWarning = true; }
+      if (msg === '[DONE]') {
+        status.textContent = 'Import complete.';
+        if (!hadWarning) {
+          const fd = new FormData();
+          fd.append('path', stagePath);
+          fetch('/failed/dismiss-by-path', {method: 'POST', body: fd}).catch(() => {});
+        }
+        return;
+      }
       if (msg.startsWith('[ERROR]')) { status.textContent = msg; status.style.color = 'var(--red)'; return; }
     }
   }
