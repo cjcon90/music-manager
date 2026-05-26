@@ -164,19 +164,42 @@ def _parse_multi_file_cue(cue_path: Path, dirpath: Path) -> list[ProbeResult]:
     sections: list[dict] = []
     cur_section: dict | None = None
     cur_track: dict | None = None
+    pending_track: dict | None = None  # track whose INDEX 01 is in the next FILE
 
     for line in content.splitlines():
         s = line.strip()
 
         m = re.match(r'FILE\s+"(.+?)"\s*\S+', s, re.IGNORECASE)
         if m:
+            # EAC "append pregap to previous track" style: TRACK N has INDEX 00
+            # in FILE N-1 but its INDEX 01 is in FILE N (before any TRACK line).
+            # Detect this by checking if the last track has no INDEX 01 yet.
+            if cur_track is not None and cur_track["start"] is None:
+                if cur_section and cur_section["tracks"] and cur_section["tracks"][-1] is cur_track:
+                    cur_section["tracks"].pop()
+                pending_track = cur_track
             candidate = dirpath / m.group(1)
+            if not candidate.exists():
+                # EAC writes .wav in the CUE even when encoding to FLAC.
+                # Try every known audio extension with the same stem.
+                stem = Path(m.group(1)).stem
+                candidate = next(
+                    (dirpath / f"{stem}{ext}" for ext in sorted(AUDIO_EXTS)
+                     if (dirpath / f"{stem}{ext}").exists()),
+                    candidate,
+                )
             cur_section = {
                 "source_file": candidate if candidate.exists() else None,
                 "tracks": [],
             }
             sections.append(cur_section)
-            cur_track = None
+            # Carry forward the pending track from the previous FILE section.
+            if pending_track is not None:
+                cur_track = pending_track
+                cur_section["tracks"].append(cur_track)
+                pending_track = None
+            else:
+                cur_track = None
             continue
 
         if cur_section is None:
@@ -242,6 +265,14 @@ def _parse_cue(cue_path: Path, dirpath: Path) -> ProbeResult:
         m = re.match(r'FILE\s+"(.+?)"\s+\S+', line, re.IGNORECASE)
         if m:
             candidate = dirpath / m.group(1)
+            if not candidate.exists():
+                # EAC writes .wav in the CUE even when encoding to FLAC.
+                stem = Path(m.group(1)).stem
+                candidate = next(
+                    (dirpath / f"{stem}{ext}" for ext in sorted(AUDIO_EXTS)
+                     if (dirpath / f"{stem}{ext}").exists()),
+                    candidate,
+                )
             if candidate.exists():
                 source_file = candidate
 

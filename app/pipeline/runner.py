@@ -38,6 +38,10 @@ def run(
         _process_multi_disc_cue_override(root, path, noincremental, mb_id_override, move)
         return
 
+    if mb_id_override and _looks_like_multi_disc_regular(root):
+        _process_multi_disc_regular_override(root, path, noincremental, mb_id_override, move)
+        return
+
     jobs = find_import_jobs(root)
     if not jobs:
         log.warning("No importable albums found in %s", path)
@@ -264,6 +268,94 @@ def log_failed(path: str, kind: str) -> None:
 
 def _log_failed(path: str, kind: str) -> None:
     log_failed(path, kind)
+
+
+def _looks_like_multi_disc_regular(root: Path) -> bool:
+    """Return True if root has >=2 subdirs each containing audio files but no audio in root itself.
+
+    Used to detect multi-disc releases where the subdirectories are named after
+    the individual discs (e.g. "Artist - Disc Title") rather than the standard
+    CD1/Disc 2 pattern that MultiDiscJob requires.  Gated on mb_id_override so
+    it never fires during automatic imports — only when the user has explicitly
+    identified the combined release.
+
+    CUE rip cases are already intercepted by _looks_like_multi_disc_cue_rip
+    before this check runs.
+    """
+    try:
+        # Root must not contain audio files directly
+        if any(f.is_file() and f.suffix.lower() in AUDIO_EXTS for f in root.iterdir()):
+            return False
+        audio_subdirs = [
+            d for d in root.iterdir()
+            if d.is_dir() and not d.name.startswith(".")
+            and any(f.is_file() and f.suffix.lower() in AUDIO_EXTS for f in d.iterdir())
+        ]
+        return len(audio_subdirs) >= 2
+    except OSError:
+        return False
+
+
+def _process_multi_disc_regular_override(
+    root: Path,
+    source_path: str,
+    noincremental: bool,
+    mb_id_override: str,
+    move: bool = False,
+) -> None:
+    """Stage multiple audio subdirs as CD 01/ CD 02/ etc. and import as one release.
+
+    Uses symlinks rather than copies to avoid duplicating large FLAC files across
+    ZFS datasets.  The staging directory is cleaned up after a successful import.
+
+    Note: move=True is not supported here — this function is only reachable for
+    fresh imports (never library rematches), so move is always False in practice.
+    The guard below makes that invariant explicit.
+    """
+    if move:
+        # Safety net: if this ever fires, fall through to normal per-subdir processing
+        # rather than symlinking + moving (which would leave dangling symlinks in /data/music/).
+        log.warning(
+            "_process_multi_disc_regular_override called with move=True for %s — "
+            "falling back to normal pipeline",
+            root,
+        )
+        jobs = find_import_jobs(root)
+        for job in jobs:
+            if isinstance(job, RegularJob):
+                _process_regular(job, source_path, noincremental, mb_id_override=mb_id_override, move=move)
+        return
+
+    audio_subdirs = sorted(
+        d for d in root.iterdir()
+        if d.is_dir() and not d.name.startswith(".")
+        and any(f.is_file() and f.suffix.lower() in AUDIO_EXTS for f in d.iterdir())
+    )
+    if len(audio_subdirs) < 2:
+        _log_failed(str(root), "skipped")
+        return
+
+    stage_root = staging.create_stage(str(root))
+
+    for i, subdir in enumerate(audio_subdirs, 1):
+        stage_disc = stage_root / f"CD {i:02d}"
+        stage_disc.mkdir(exist_ok=True)
+        if not any(stage_disc.iterdir()):  # idempotency: skip if already populated
+            for audio_file in sorted(
+                f for f in subdir.iterdir()
+                if f.is_file() and f.suffix.lower() in AUDIO_EXTS
+            ):
+                link = stage_disc / audio_file.name
+                if not link.exists():
+                    link.symlink_to(audio_file.resolve())
+
+    result = run_beet_import(
+        str(stage_root),
+        mb_id=mb_id_override,
+        noincremental=noincremental,
+        move=move,
+    )
+    _handle_result(result, source_path, str(root))
 
 
 def _looks_like_multi_disc_cue_rip(root: Path) -> bool:
