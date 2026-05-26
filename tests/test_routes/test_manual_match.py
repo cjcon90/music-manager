@@ -28,7 +28,7 @@ def test_search_returns_candidates(mock_search, client):
     assert resp.status_code == 200
     assert b'Let It Be' in resp.data
     assert b'97' in resp.data   # score shown
-    mock_search.assert_called_with('Beatles Let It Be')
+    mock_search.assert_called_with('Beatles Let It Be', artist='', title='Beatles Let It Be')
     assert b'Tracks' in resp.data  # track toggle button rendered
 
 
@@ -107,3 +107,22 @@ def test_split_by_mb_releases_lock_on_failure(mock_staging, mock_probe, mock_rel
     body = resp.data.decode()
     assert '[ERROR]' in body
     mock_release.assert_called_once()
+
+
+@patch('app.routes.manual_match.search_releases', return_value=MOCK_CANDIDATES)
+def test_search_with_artist_field(mock_search, client):
+    """Artist field must be passed through as keyword arg to search_releases."""
+    resp = client.post('/manual-match/search',
+                       data={'stage_path': '/some/path', 'query': 'At Last!', 'artist': 'Etta James'})
+    assert resp.status_code == 200
+    mock_search.assert_called_with('At Last!', artist='Etta James', title='At Last!')
+    assert b'At Last' in resp.data
+
+
+@patch('app.routes.manual_match.search_releases', return_value=[])
+def test_search_artist_only_no_query(mock_search, client):
+    """Searching with only an artist field (empty album) still triggers search."""
+    resp = client.post('/manual-match/search',
+                       data={'stage_path': '/p', 'query': '', 'artist': 'Etta James'})
+    assert resp.status_code == 200
+    mock_search.assert_called_with('', artist='Etta James', title='')

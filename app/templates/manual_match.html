@@ -17,8 +17,10 @@
 
     <form method="post" action="{{ url_for('manual_match.search') }}">
       <input type="hidden" name="stage_path" value="{{ stage_path }}">
-      <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Search Terms</div>
-      <input type="text" name="query" value="{{ query }}" style="width:100%;background:var(--bg-primary);border:1px solid var(--border-secondary);border-radius:4px;padding:7px 10px;color:var(--text-primary);font-size:12px;margin-bottom:6px">
+      <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Artist <span style="font-weight:400">(optional)</span></div>
+      <input type="text" name="artist" value="{{ artist }}" placeholder="e.g. Etta James" style="width:100%;background:var(--bg-primary);border:1px solid var(--border-secondary);border-radius:4px;padding:7px 10px;color:var(--text-primary);font-size:12px;margin-bottom:8px">
+      <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Album / Keywords</div>
+      <input type="text" name="query" value="{{ query }}" placeholder="e.g. At Last!" style="width:100%;background:var(--bg-primary);border:1px solid var(--border-secondary);border-radius:4px;padding:7px 10px;color:var(--text-primary);font-size:12px;margin-bottom:6px">
       <button type="submit" class="btn btn-primary" style="width:100%">Search MusicBrainz</button>
     </form>
 

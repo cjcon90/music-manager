@@ -105,6 +105,7 @@ def index():
         "manual_match.html",
         stage_path=stage_path,
         query="",
+        artist="",
         candidates=[],
         searched=False,
         apply_id_release=None,
@@ -119,7 +120,9 @@ def index():
 def search():
     stage_path = request.form.get("stage_path", "")
     query = request.form.get("query", "").strip()
-    candidates = search_releases(query) if query else []
+    artist = request.form.get("artist", "").strip()
+    has_input = bool(query or artist)
+    candidates = search_releases(query, artist=artist, title=query) if has_input else []
     local_tracks, using_cue, single_flac = _stage_info(stage_path)
     for c in candidates:
         mb_tracks = [TrackDetail(position=i + 1, title=t) for i, t in enumerate(c["tracks"])]
@@ -138,6 +141,7 @@ def search():
         "manual_match.html",
         stage_path=stage_path,
         query=query,
+        artist=artist,
         candidates=candidates,
         searched=True,
         apply_id_release=None,

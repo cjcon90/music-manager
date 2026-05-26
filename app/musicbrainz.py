@@ -77,8 +77,38 @@ def _parse_candidate(release: dict[str, Any]) -> MBCandidate:
     )
 
 
-def search_releases(query: str) -> list[MBCandidate]:
-    resp = _get(f"{MB_API}/release", params={"query": query, "fmt": "json", "limit": 25})
+
+
+def _escape_lucene(s: str) -> str:
+    """Escape double-quotes inside a Lucene quoted phrase."""
+    return s.replace('"', '\\"')
+
+
+def _build_query(query: str, artist: str, title: str) -> str:
+    """Return a MusicBrainz Lucene query string.
+
+    When *artist* and/or *title* are given, construct a field-specific query so
+    that MB's relevance scoring does not conflate artist-name matches with
+    album-title matches (e.g. searching "etta james at last" as a plain query
+    floods results with self-titled "Etta James" albums because "etta james"
+    appears in *both* the artist and title fields of those releases).
+
+    Falls back to the raw *query* string when no structured fields are provided,
+    preserving existing plain-text search behaviour.
+    """
+    parts: list[str] = []
+    if artist:
+        parts.append(f'artist:"{_escape_lucene(artist)}"')
+    if title:
+        parts.append(f'release:"{_escape_lucene(title)}"')
+    if parts:
+        return " AND ".join(parts)
+    return query
+
+
+def search_releases(query: str, *, artist: str = "", title: str = "") -> list[MBCandidate]:
+    q = _build_query(query, artist, title)
+    resp = _get(f"{MB_API}/release", params={"query": q, "fmt": "json", "limit": 25})
     releases: list[dict[str, Any]] = resp.json().get("releases", [])
     return [_parse_candidate(r) for r in releases]
 

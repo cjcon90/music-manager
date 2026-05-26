@@ -75,3 +75,46 @@ def test_search_includes_user_agent():
     )
     mb.search_releases("test")
     assert "music-manager" in responses.calls[0].request.headers["User-Agent"]
+
+
+# ---------------------------------------------------------------------------
+# _escape_lucene and _build_query
+# ---------------------------------------------------------------------------
+
+def test_build_query_structured():
+    q = mb._build_query("", "etta james", "at last")
+    assert q == 'artist:"etta james" AND release:"at last"'
+
+
+def test_build_query_artist_only():
+    q = mb._build_query("", "etta james", "")
+    assert q == 'artist:"etta james"'
+
+
+def test_build_query_title_only():
+    q = mb._build_query("", "", "at last")
+    assert q == 'release:"at last"'
+
+
+def test_build_query_falls_back_to_plain():
+    q = mb._build_query("etta james at last", "", "")
+    assert q == "etta james at last"
+
+
+def test_build_query_escapes_double_quotes():
+    q = mb._build_query("", 'AC"DC', "")
+    assert q == 'artist:"AC\\"DC"'
+
+
+@responses.activate
+def test_search_releases_sends_structured_lucene_query():
+    """When artist and title are given, the URL must contain field-qualified terms."""
+    responses.add(responses.GET, "https://musicbrainz.org/ws/2/release", json=MB_SEARCH_RESPONSE)
+    mb._last_request_ts = 0.0
+    mb.search_releases("at last", artist="etta james", title="at last")
+    sent_url = responses.calls[0].request.url
+    # artist:"etta james" AND release:"at last" — URL-encoded
+    assert "artist%3A" in sent_url
+    assert "release%3A" in sent_url
+    assert "etta+james" in sent_url or "etta%20james" in sent_url
+    assert "at+last" in sent_url or "at%20last" in sent_url
