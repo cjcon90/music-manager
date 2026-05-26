@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Browse — music-manager{% endblock %}
+{% block content %}
+
+{# ── Root switcher ── #}
+<div style="display:flex;gap:8px;margin-bottom:16px">
+  {% for label, root_path in roots %}
+  <a href="{{ url_for('browse.index', path=root_path) }}"
+     class="btn {% if root_path == active_root %}btn-primary{% else %}btn-secondary{% endif %}"
+     style="font-size:12px">{{ label }}</a>
+  {% endfor %}
+</div>
+
+{# ── Breadcrumb ── #}
+<div class="mono" style="font-size:11px;margin-bottom:14px;display:flex;flex-wrap:wrap;align-items:center;gap:4px">
+  {% for name, path in breadcrumb %}
+  {% if not loop.last %}
+  <a href="{{ url_for('browse.index', path=path) }}"
+     style="color:var(--text-secondary);text-decoration:none">{{ name }}</a>
+  <span style="color:var(--text-tertiary)">/</span>
+  {% else %}
+  <span style="color:var(--text-primary);font-weight:500">{{ name }}</span>
+  {% endif %}
+  {% endfor %}
+</div>
+
+{# ── Queue current directory ── #}
+<form method="post" action="{{ url_for('queue.add') }}"
+      style="display:flex;gap:8px;margin-bottom:20px;align-items:center">
+  <input type="hidden" name="path" value="{{ current }}">
+  <input type="text" name="search_id"
+         placeholder="MB release ID (optional — paste UUID to skip MusicBrainz search)"
+         style="flex:1;max-width:480px;background:var(--bg-primary);border:1px solid var(--border-secondary);
+                border-radius:4px;padding:8px 10px;color:var(--text-primary);font-size:12px;font-family:monospace">
+  <button type="submit" class="btn btn-primary"
+          style="font-size:12px;white-space:nowrap">Queue this directory</button>
+</form>
+
+{# ── Listing ── #}
+{% if dirs or files %}
+<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+
+  {% for d in dirs %}
+  {% set border = 'var(--border)' if not loop.last or files else 'transparent' %}
+  <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;
+              border-bottom:1px solid {{ border }}">
+    <span style="color:var(--text-tertiary);flex-shrink:0">📁</span>
+    <a href="{{ url_for('browse.index', path=d.path) }}"
+       class="mono"
+       style="flex:1;font-size:12px;color:var(--text-primary);text-decoration:none;
+              overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+       title="{{ d.name }}">{{ d.name }}</a>
+    <span class="text-tertiary" style="font-size:10px;flex-shrink:0;white-space:nowrap">
+      {{ d.file_count }} file{{ 's' if d.file_count != 1 }}{% if d.subdir_count %} · {{ d.subdir_count }} dir{{ 's' if d.subdir_count != 1 }}{% endif %}
+    </span>
+    <form method="post" action="{{ url_for('queue.add') }}" style="flex-shrink:0">
+      <input type="hidden" name="path" value="{{ d.path }}">
+      <button type="submit" class="btn btn-secondary"
+              style="font-size:11px;padding:3px 10px">Queue</button>
+    </form>
+  </div>
+  {% endfor %}
+
+  {% for fname in files %}
+  {% set border = 'var(--border)' if not loop.last else 'transparent' %}
+  <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;
+              border-bottom:1px solid {{ border }}">
+    <span style="color:var(--text-tertiary);flex-shrink:0">📄</span>
+    <span class="mono text-tertiary" style="font-size:11px">{{ fname }}</span>
+  </div>
+  {% endfor %}
+
+</div>
+{% else %}
+<div class="text-tertiary" style="text-align:center;padding:48px;font-size:12px">
+  Empty directory.
+</div>
+{% endif %}
+
+{% endblock %}

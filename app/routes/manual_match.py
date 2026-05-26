@@ -1,8 +1,10 @@
+import hashlib
 import os
 import re
+import time
 from pathlib import Path
 
-from flask import Blueprint, Response, abort, render_template, request, stream_with_context
+from flask import Blueprint, Response, abort, jsonify, render_template, request, stream_with_context
 
 from app import staging as _staging
 from app.beets_api import get_album_by_id
@@ -207,6 +209,40 @@ def apply_by_id():
         using_cue=using_cue,
         single_flac=single_flac,
     )
+
+
+@bp.route("/manual-match/queue-apply", methods=["POST"])
+def queue_apply():
+    """Queue a manual-match import job — returns immediately, watcher applies it in the background.
+
+    This mirrors /album/<id>/queue-rematch but is used for failed imports where we have a
+    stage_path (the original failed job directory) rather than a library album_id.
+    """
+    from app import config
+    from app.routes.failed import dismiss_failed_entry as _dismiss
+
+    stage_path = request.form.get("stage_path", "").strip()
+    mb_uuid = request.form.get("mb_uuid", "").strip()
+
+    if not stage_path:
+        return jsonify({"ok": False, "error": "stage_path required"}), 400
+    if not mb_uuid or not re.fullmatch(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        mb_uuid, re.IGNORECASE,
+    ):
+        return jsonify({"ok": False, "error": "invalid mb_uuid"}), 400
+
+    queue_dir = Path(config.IMPORT_QUEUE_DIR)
+    queue_dir.mkdir(parents=True, exist_ok=True, mode=0o777)
+
+    tag = hashlib.sha256(f"manual-{stage_path}-{mb_uuid}-{time.time()}".encode()).hexdigest()[:8]
+    path_file = queue_dir / f"manual-{tag}.path"
+    path_file.write_text(f"{stage_path}\n--noincremental\n--search-id={mb_uuid}\n")
+
+    # Optimistically dismiss the failed-imports entry so the UI stays clean
+    _dismiss(stage_path)
+
+    return jsonify({"ok": True})
 
 
 @bp.route("/manual-match/stream")

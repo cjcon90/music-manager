@@ -65,7 +65,7 @@
         {% if from_library %}
         <button class="btn btn-success" onclick='queueRematch({{ album_id | tojson }}, {{ apply_id_release.id | tojson }})'>✓ Apply</button>
         {% else %}
-        <button class="btn btn-success" onclick='startImport({{ stage_path | tojson }}, {{ apply_id_release.id | tojson }}, false)'>✓ Apply</button>
+        <button class="btn btn-success" onclick='queueApply({{ stage_path | tojson }}, {{ apply_id_release.id | tojson }})'>✓ Apply this match</button>
         {% endif %}
       </div>
       {% if track_rows %}
@@ -143,7 +143,7 @@
             {% if loop.first %}✓ {% endif %}Apply this match
           </button>
           {% else %}
-          <button class="btn {% if loop.first %}btn-success{% else %}btn-secondary{% endif %}" style="flex:1" onclick='startImport({{ stage_path | tojson }}, {{ c.id | tojson }}, false)'>
+          <button class="btn {% if loop.first %}btn-success{% else %}btn-secondary{% endif %}" style="flex:1" onclick='queueApply({{ stage_path | tojson }}, {{ c.id | tojson }})'>
             {% if loop.first %}✓ {% endif %}Apply this match
           </button>
           {% endif %}
@@ -192,6 +192,40 @@ function toggleTracks(id, btn) {
   const hidden = el.style.display === 'none';
   el.style.display = hidden ? 'block' : 'none';
   btn.textContent = hidden ? '▲ Tracks' : '▼ Tracks';
+}
+
+async function queueApply(stagePath, mbUuid) {
+  // Queue a manual-match import for a failed import (non-library path).
+  // Mirrors queueRematch but POSTs to /manual-match/queue-apply with stage_path.
+  const panel = document.getElementById('import-panel');
+  const output = document.getElementById('import-output');
+  const status = document.getElementById('import-status');
+  panel.style.display = 'block';
+  panel.scrollIntoView({behavior: 'smooth', block: 'start'});
+  output.textContent = '';
+  status.textContent = 'Queuing…';
+  status.style.color = '';
+
+  const fd = new FormData();
+  fd.append('stage_path', stagePath);
+  fd.append('mb_uuid', mbUuid);
+  let resp;
+  try {
+    resp = await fetch('/manual-match/queue-apply', {method: 'POST', body: fd});
+  } catch (e) {
+    status.textContent = 'Connection failed.';
+    status.style.color = 'var(--red)';
+    return;
+  }
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data.ok) {
+    status.textContent = 'Error: ' + (data.error || resp.status);
+    status.style.color = 'var(--red)';
+    return;
+  }
+  status.textContent = 'Queued — import will run in the background.';
+  status.style.color = 'var(--green)';
+  output.textContent = 'Match job added to the import queue.\nBeet will apply the selected MusicBrainz release shortly.\nThe Failed Imports list will update once complete.';
 }
 
 async function queueRematch(albumId, mbUuid) {

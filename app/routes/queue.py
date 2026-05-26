@@ -77,7 +77,10 @@ def get_recently_completed(n: int = 10) -> list[dict]:
                 confirmed_match = True
                 break
 
-        if not confirmed_match and path in failed_paths:
+        if not confirmed_match and (
+            path in failed_paths
+            or any(fp.startswith(path.rstrip("/") + "/") for fp in failed_paths)
+        ):
             status = "failed"
 
         try:
@@ -112,12 +115,20 @@ def add():
         abort(400)
     path = path.splitlines()[0]  # prevent newline injection into .path file flags
 
+    search_id_raw = request.form.get("search_id", "").strip()
+    search_id = search_id_raw if re.fullmatch(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        search_id_raw, re.IGNORECASE,
+    ) else ""
+
     slug = re.sub(r"[^\w-]", "_", os.path.basename(path))[:40]
     fname = f"{int(time.time())}_{slug}.path"
     os.makedirs(config.IMPORT_QUEUE_DIR, exist_ok=True)
     with open(os.path.join(config.IMPORT_QUEUE_DIR, fname), "w") as f:
         f.write(path + "\n")
         f.write("--noincremental\n")
+        if search_id:
+            f.write(f"--search-id={search_id}\n")
 
     return redirect(url_for("queue.index"))
 

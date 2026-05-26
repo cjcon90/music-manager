@@ -124,6 +124,22 @@ def requeue():
     return redirect(url_for("failed.index"))
 
 
+def dismiss_failed_entry(path: str) -> None:
+    """Dismiss all failed-import entries matching *path*. Called programmatically."""
+    if not path:
+        return
+    try:
+        with open(config.IMPORT_FAILED_LOG) as f:
+            lines = [line.rstrip() for line in f if line.strip()]
+    except FileNotFoundError:
+        return
+    for line in lines:
+        parts = line.split(" | ", 2)
+        line_path = (parts[2] if len(parts) == 3 else parts[1] if len(parts) == 2 else "").strip()
+        if line_path == path:
+            _dismiss_line(line)
+
+
 @bp.route("/failed/dismiss-by-path", methods=["POST"])
 def dismiss_by_path():
     """Dismiss the failed-import entry matching a given stage_path.

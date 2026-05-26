@@ -18,6 +18,7 @@ def create_app() -> Flask:
 
     cleanup_stale_lock()
 
+    from app.routes.browse import bp as browse_bp
     from app.routes.album import bp as album_bp
     from app.routes.failed import bp as failed_bp
     from app.routes.library import bp as library_bp
@@ -25,6 +26,7 @@ def create_app() -> Flask:
     from app.routes.queue import bp as queue_bp
     from app.routes.remove import bp as remove_bp
 
+    app.register_blueprint(browse_bp)
     app.register_blueprint(album_bp)
     app.register_blueprint(library_bp)
     app.register_blueprint(remove_bp)

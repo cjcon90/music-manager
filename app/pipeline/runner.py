@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -11,6 +12,10 @@ from app.pipeline.probe import ProbeResult, probe_cue, probe_cue_file, probe_fla
 from app.pipeline.splitter import split_cue_rip
 
 log = logging.getLogger(__name__)
+
+# Relaxed pattern for multi-disc-cue detection: matches "CD01 - Title", "Disc 2 - ...", etc.
+# Only used for pre-detection override; global DISC_PATTERN stays strict.
+_RELAXED_DISC_PATTERN = re.compile(r"^(?:cd|disc|disk)\s*\d+\b", re.IGNORECASE)
 
 
 def run(
@@ -28,6 +33,10 @@ def run(
     """
     _log_processing(path)
     root = Path(path)
+
+    if mb_id_override and _looks_like_multi_disc_cue_rip(root):
+        _process_multi_disc_cue_override(root, path, noincremental, mb_id_override, move)
+        return
 
     jobs = find_import_jobs(root)
     if not jobs:
@@ -58,7 +67,7 @@ def _process_cue_rip(job: CueRipJob, source_path: str, noincremental: bool, mb_i
             split_cue_rip(job.path, stage_dir, probe)
         except Exception as e:
             log.error("Split failed for %s: %s", job.path, e)
-            _log_failed(source_path, "skipped")
+            _log_failed(str(job.path), "skipped")
             staging.delete_stage(str(job.path))
             return
 
@@ -74,7 +83,7 @@ def _process_multi_cue_rip(job: MultiCueRipJob, source_path: str, noincremental:
         if f.suffix.lower() == ".cue" and "isrc" not in f.name.lower()
     )
     if not cue_files:
-        _log_failed(source_path, "skipped")
+        _log_failed(str(job.path), "skipped")
         return
 
     stage_root = staging.create_stage(str(job.path))
@@ -92,7 +101,7 @@ def _process_multi_cue_rip(job: MultiCueRipJob, source_path: str, noincremental:
                 split_cue_rip(job.path, disc_dir, disc_probe)
             except Exception as e:
                 log.error("Split failed for %s disc %d: %s", job.path, i, e)
-                _log_failed(source_path, "skipped")
+                _log_failed(str(job.path), "skipped")
                 staging.delete_stage(str(job.path))
                 return
 
@@ -119,7 +128,7 @@ def _process_multi_file_cue(job: MultiFileCueJob, source_path: str, noincrementa
     sections = probe_multi_file_cue(job.path)
     if not sections:
         log.warning("No sections found in multi-file CUE for %s", job.path)
-        _log_failed(source_path, "skipped")
+        _log_failed(str(job.path), "skipped")
         return
 
     stage_dir = staging.create_stage(str(job.path))
@@ -136,7 +145,7 @@ def _process_multi_file_cue(job: MultiFileCueJob, source_path: str, noincrementa
             split_cue_rip(job.path, stage_dir, section)
         except Exception as e:
             log.error("Split failed for %s (%s): %s", job.path, section.source_file, e)
-            _log_failed(source_path, "skipped")
+            _log_failed(str(job.path), "skipped")
             staging.delete_stage(str(job.path))
             return
         all_titles.extend(section.track_titles)
@@ -213,7 +222,7 @@ def _process_multi_disc(job: MultiDiscJob, source_path: str, noincremental: bool
                 split_cue_rip(disc_dir, stage_disc, disc_probe)
             except Exception as e:
                 log.error("Split failed for %s: %s", disc_dir, e)
-                _log_failed(source_path, "skipped")
+                _log_failed(str(job.path), "skipped")
                 staging.delete_stage(str(job.path))
                 return
 
@@ -235,7 +244,7 @@ def _handle_result(result: ImportResult, source_path: str, album_path: str) -> N
         staging.delete_stage(album_path)
     elif result.status in ("nomatch", "timeout"):
         kind = "nomatch" if result.status == "nomatch" else "skipped"
-        _log_failed(source_path, kind)
+        _log_failed(album_path, kind)
 
 
 def _log_processing(path: str) -> None:
@@ -255,6 +264,71 @@ def log_failed(path: str, kind: str) -> None:
 
 def _log_failed(path: str, kind: str) -> None:
     log_failed(path, kind)
+
+
+def _looks_like_multi_disc_cue_rip(root: Path) -> bool:
+    """Return True if root contains ≥2 subdirs that each look like disc-image CUE rips.
+
+    Uses _RELAXED_DISC_PATTERN so "CD01 - Title" matches even though the strict
+    DISC_PATTERN (used by the detector) requires a clean "CD1" form.
+    """
+    try:
+        disc_dirs = [
+            d for d in root.iterdir()
+            if d.is_dir() and _RELAXED_DISC_PATTERN.match(d.name)
+        ]
+    except OSError:
+        return False
+    return len(disc_dirs) >= 2 and all(_disc_is_image_cue(d) for d in disc_dirs)
+
+
+def _process_multi_disc_cue_override(
+    root: Path,
+    source_path: str,
+    noincremental: bool,
+    mb_id_override: str,
+    move: bool = False,
+) -> None:
+    """Split each disc-image CUE rip under *root* into a shared staging tree and import together.
+
+    Used when the user has supplied a specific MusicBrainz release ID for a multi-disc
+    compilation whose subdirectory names don't match the strict DISC_PATTERN (e.g.
+    "CD01 - Somethin' Else" instead of plain "CD1").
+    """
+    disc_dirs = sorted(
+        d for d in root.iterdir()
+        if d.is_dir() and _RELAXED_DISC_PATTERN.match(d.name)
+    )
+    if not disc_dirs:
+        _log_failed(str(root), "skipped")
+        return
+
+    stage_root = staging.create_stage(str(root))
+    all_titles: list[str] = []
+    first_probe: ProbeResult | None = None
+
+    for i, disc_dir in enumerate(disc_dirs, 1):
+        disc_probe = probe_cue(disc_dir)
+        if first_probe is None:
+            first_probe = disc_probe
+        all_titles.extend(disc_probe.track_titles)
+        stage_disc = stage_root / f"CD {i:02d}"
+        if not (stage_disc.exists() and list(stage_disc.glob("*.flac"))):
+            try:
+                split_cue_rip(disc_dir, stage_disc, disc_probe)
+            except Exception as e:
+                log.error("Split failed for %s: %s", disc_dir, e)
+                _log_failed(str(root), "skipped")
+                staging.delete_stage(str(root))
+                return
+
+    result = run_beet_import(
+        str(stage_root),
+        mb_id=mb_id_override,
+        noincremental=noincremental,
+        move=move,
+    )
+    _handle_result(result, source_path, str(root))
 
 
 def _append(filepath: str, text: str) -> None:
