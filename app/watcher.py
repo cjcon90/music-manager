@@ -58,8 +58,13 @@ def _watcher_loop() -> None:
             path_file.unlink()
             Path(config.IMPORT_ACTIVE_FILE).write_text(path)
             noincremental = "--noincremental" in flags
+            move = "--move" in flags
+            search_id = next(
+                (f.split("=", 1)[1] for f in flags if f.startswith("--search-id=")),
+                None,
+            )
             try:
-                runner.run(path, noincremental=noincremental)
+                runner.run(path, noincremental=noincremental, mb_id_override=search_id, move=move)
             except Exception as e:
                 log.error("Runner crashed for %s: %s", path, e)
                 # Write to import-failed.log so the failure is visible in the UI,

@@ -13,7 +13,19 @@ from app.pipeline.splitter import split_cue_rip
 log = logging.getLogger(__name__)
 
 
-def run(path: str, noincremental: bool = True) -> None:
+def run(
+    path: str,
+    noincremental: bool = True,
+    mb_id_override: str | None = None,
+    move: bool = False,
+) -> None:
+    """Run the full import pipeline for a path.
+
+    mb_id_override: skip the matcher and apply this specific MusicBrainz release ID.
+                    Used for library rematches where the user has already chosen the release.
+    move:           pass --move to beet so files are relocated rather than copied.
+                    Used for library rematches to avoid orphaned files when the path changes.
+    """
     _log_processing(path)
     root = Path(path)
 
@@ -26,16 +38,16 @@ def run(path: str, noincremental: bool = True) -> None:
 
     for job in jobs:
         if isinstance(job, CueRipJob):
-            _process_cue_rip(job, path, noincremental)
+            _process_cue_rip(job, path, noincremental, mb_id_override=mb_id_override, move=move)
         elif isinstance(job, MultiCueRipJob):
-            _process_multi_cue_rip(job, path, noincremental)
+            _process_multi_cue_rip(job, path, noincremental, mb_id_override=mb_id_override, move=move)
         elif isinstance(job, RegularJob):
-            _process_regular(job, path, noincremental)
+            _process_regular(job, path, noincremental, mb_id_override=mb_id_override, move=move)
         elif isinstance(job, MultiDiscJob):
-            _process_multi_disc(job, path, noincremental)
+            _process_multi_disc(job, path, noincremental, mb_id_override=mb_id_override, move=move)
 
 
-def _process_cue_rip(job: CueRipJob, source_path: str, noincremental: bool) -> None:
+def _process_cue_rip(job: CueRipJob, source_path: str, noincremental: bool, mb_id_override: str | None = None, move: bool = False) -> None:
     stage_dir = staging.create_stage(str(job.path))
     probe = probe_cue(job.path)
 
@@ -48,12 +60,12 @@ def _process_cue_rip(job: CueRipJob, source_path: str, noincremental: bool) -> N
             staging.delete_stage(str(job.path))
             return
 
-    mb_id = find_best_release(probe)
-    result = run_beet_import(str(stage_dir), mb_id=mb_id, noincremental=noincremental)
+    mb_id = mb_id_override if mb_id_override else find_best_release(probe)
+    result = run_beet_import(str(stage_dir), mb_id=mb_id, noincremental=noincremental, move=move)
     _handle_result(result, source_path, str(job.path))
 
 
-def _process_multi_cue_rip(job: MultiCueRipJob, source_path: str, noincremental: bool) -> None:
+def _process_multi_cue_rip(job: MultiCueRipJob, source_path: str, noincremental: bool, mb_id_override: str | None = None, move: bool = False) -> None:
     """Handle a directory with N paired FLAC+CUE files (e.g. a 2-disc album as whole-disc rips)."""
     cue_files = sorted(
         f for f in job.path.iterdir()
@@ -89,15 +101,15 @@ def _process_multi_cue_rip(job: MultiCueRipJob, source_path: str, noincremental:
         track_count=len(all_titles),
         track_titles=all_titles,
     )
-    mb_id = find_best_release(combined)
-    result = run_beet_import(str(stage_root), mb_id=mb_id, noincremental=noincremental)
+    mb_id = mb_id_override if mb_id_override else find_best_release(combined)
+    result = run_beet_import(str(stage_root), mb_id=mb_id, noincremental=noincremental, move=move)
     _handle_result(result, source_path, str(job.path))
 
 
-def _process_regular(job: RegularJob, source_path: str, noincremental: bool) -> None:
+def _process_regular(job: RegularJob, source_path: str, noincremental: bool, mb_id_override: str | None = None, move: bool = False) -> None:
     probe = probe_flac(job.path)
-    mb_id = find_best_release(probe)
-    result = run_beet_import(str(job.path), mb_id=mb_id, noincremental=noincremental)
+    mb_id = mb_id_override if mb_id_override else find_best_release(probe)
+    result = run_beet_import(str(job.path), mb_id=mb_id, noincremental=noincremental, move=move)
     _handle_result(result, source_path, str(job.path))
 
 
@@ -112,7 +124,7 @@ def _disc_is_image_cue(d: Path) -> bool:
     return len(audio) == 1 and len(cue) >= 1
 
 
-def _process_multi_disc(job: MultiDiscJob, source_path: str, noincremental: bool) -> None:
+def _process_multi_disc(job: MultiDiscJob, source_path: str, noincremental: bool, mb_id_override: str | None = None, move: bool = False) -> None:
     disc_dirs = sorted(
         d for d in job.path.iterdir()
         if d.is_dir() and DISC_PATTERN.match(d.name)
@@ -134,8 +146,8 @@ def _process_multi_disc(job: MultiDiscJob, source_path: str, noincremental: bool
             track_count=len(all_titles),
             track_titles=all_titles,
         )
-        mb_id = find_best_release(combined)
-        result = run_beet_import(str(job.path), mb_id=mb_id, noincremental=noincremental)
+        mb_id = mb_id_override if mb_id_override else find_best_release(combined)
+        result = run_beet_import(str(job.path), mb_id=mb_id, noincremental=noincremental, move=move)
         _handle_result(result, source_path, str(job.path))
         return
 
@@ -165,8 +177,8 @@ def _process_multi_disc(job: MultiDiscJob, source_path: str, noincremental: bool
         track_count=len(all_titles),
         track_titles=all_titles,
     )
-    mb_id = find_best_release(combined)
-    result = run_beet_import(str(stage_root), mb_id=mb_id, noincremental=noincremental)
+    mb_id = mb_id_override if mb_id_override else find_best_release(combined)
+    result = run_beet_import(str(stage_root), mb_id=mb_id, noincremental=noincremental, move=move)
     _handle_result(result, source_path, str(job.path))
 
 

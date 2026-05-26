@@ -22,10 +22,13 @@ def run_beet_import(
     path: str,
     mb_id: str | None,
     noincremental: bool = True,
+    move: bool = False,
 ) -> ImportResult:
     cmd = ["beet", "import", "--quiet"]
     if noincremental:
         cmd.append("--noincremental")
+    if move:
+        cmd.append("--move")
     if mb_id:
         cmd += ["--search-id", mb_id]
     else:

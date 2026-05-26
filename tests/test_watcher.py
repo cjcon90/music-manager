@@ -42,7 +42,7 @@ def test_watcher_loop_processes_path_file(tmp_path):
         # Run exactly one iteration via a side-effect that stops the loop
         call_count = 0
 
-        def fake_run(path, noincremental=True):
+        def fake_run(path, noincremental=True, mb_id_override=None, move=False):
             nonlocal call_count
             call_count += 1
 
@@ -56,7 +56,7 @@ def test_watcher_loop_processes_path_file(tmp_path):
                 pass
 
         assert call_count == 1
-        mock_runner.run.assert_called_once_with("/media/downloads/album", noincremental=False)
+        mock_runner.run.assert_called_once_with("/media/downloads/album", noincremental=False, mb_id_override=None, move=False)
         assert not path_file.exists()
 
 
@@ -72,7 +72,7 @@ def test_watcher_loop_passes_noincremental_flag(tmp_path):
         except StopIteration:
             pass
 
-        mock_runner.run.assert_called_once_with("/media/downloads/album", noincremental=True)
+        mock_runner.run.assert_called_once_with("/media/downloads/album", noincremental=True, mb_id_override=None, move=False)
 
 
 def test_watcher_loop_writes_active_file(tmp_path):
@@ -82,7 +82,7 @@ def test_watcher_loop_writes_active_file(tmp_path):
 
     seen_active = []
 
-    def fake_run(path, noincremental=True):
+    def fake_run(path, noincremental=True, mb_id_override=None, move=False):
         seen_active.append(active_file.read_text().strip() if active_file.exists() else None)
 
     with patch("app.watcher.runner") as mock_runner, \
@@ -104,7 +104,7 @@ def test_watcher_loop_continues_after_runner_crash(tmp_path):
 
     calls = []
 
-    def fake_run(path, noincremental=True):
+    def fake_run(path, noincremental=True, mb_id_override=None, move=False):
         calls.append(path)
         if "album1" in path:
             raise RuntimeError("runner crashed")

@@ -3,9 +3,16 @@
 {% block content %}
 
 <div style="margin-bottom:12px;display:flex;align-items:center;gap:8px">
+  {% if from_library %}
+  <a href="{{ url_for('library.index') }}" class="text-secondary" style="font-size:12px;text-decoration:none">← Library</a>
+  {% else %}
   <a href="{{ url_for('failed.index') }}" class="text-secondary" style="font-size:12px;text-decoration:none">← Failed Imports</a>
+  {% endif %}
   <span class="text-tertiary">/</span>
   <span style="font-size:12px">Manual Match</span>
+  {% if from_library %}
+  <span style="font-size:11px;color:var(--amber);background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:3px;padding:1px 6px;margin-left:4px">re-match</span>
+  {% endif %}
   <div style="flex:1"></div>
   <span class="mono text-tertiary" style="font-size:10px">{{ stage_path }}</span>
 </div>
@@ -17,6 +24,7 @@
 
     <form method="post" action="{{ url_for('manual_match.search') }}">
       <input type="hidden" name="stage_path" value="{{ stage_path }}">
+      {% if album_id is not none %}<input type="hidden" name="album_id" value="{{ album_id }}">{% endif %}
       <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Artist <span style="font-weight:400">(optional)</span></div>
       <input type="text" name="artist" value="{{ artist }}" placeholder="e.g. Etta James" style="width:100%;background:var(--bg-primary);border:1px solid var(--border-secondary);border-radius:4px;padding:7px 10px;color:var(--text-primary);font-size:12px;margin-bottom:8px">
       <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Album / Keywords</div>
@@ -27,17 +35,20 @@
     <div style="border-top:1px solid var(--border);padding-top:14px">
       <form method="post" action="{{ url_for('manual_match.apply_by_id') }}">
         <input type="hidden" name="stage_path" value="{{ stage_path }}">
+        {% if album_id is not none %}<input type="hidden" name="album_id" value="{{ album_id }}">{% endif %}
         <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Know the Release ID?</div>
         <input type="text" name="mb_uuid" placeholder="Paste MusicBrainz UUID…" style="width:100%;background:var(--bg-primary);border:1px solid var(--border-secondary);border-radius:4px;padding:7px 10px;color:var(--text-primary);font-size:11px;font-family:monospace;margin-bottom:6px">
         <button type="submit" class="btn btn-secondary" style="width:100%">Apply by ID →</button>
       </form>
     </div>
 
+    {% if not from_library %}
     <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:auto">
       <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Fallback</div>
       <button class="btn btn-secondary" style="width:100%" onclick='startImport({{ stage_path | tojson }}, null, true)'>Use as-is (no match)</button>
       <div class="text-tertiary" style="font-size:10px;margin-top:4px;text-align:center">Imports without MusicBrainz tags</div>
     </div>
+    {% endif %}
 
   </div>
 
@@ -51,7 +62,11 @@
           <div style="font-size:13px;font-weight:600">{{ apply_id_release.title }}</div>
           <div class="text-secondary" style="font-size:11px">{{ apply_id_release.artist }} · {{ apply_id_release.year }} · {{ apply_id_release.country }}</div>
         </div>
+        {% if from_library %}
+        <button class="btn btn-success" onclick='queueRematch({{ album_id | tojson }}, {{ apply_id_release.id | tojson }})'>✓ Apply</button>
+        {% else %}
         <button class="btn btn-success" onclick='startImport({{ stage_path | tojson }}, {{ apply_id_release.id | tojson }}, false)'>✓ Apply</button>
+        {% endif %}
       </div>
       {% if track_rows %}
       <div style="padding:8px 14px;background:var(--bg-tertiary)">
@@ -123,9 +138,15 @@
           {% if c.disambiguation %}<span style="background:var(--bg-secondary);color:var(--text-secondary);padding:2px 8px;border-radius:3px;font-size:10px;font-style:italic">{{ c.disambiguation }}</span>{% endif %}
         </div>
         <div style="display:flex;gap:6px;margin-bottom:6px">
+          {% if from_library %}
+          <button class="btn {% if loop.first %}btn-success{% else %}btn-secondary{% endif %}" style="flex:1" onclick='queueRematch({{ album_id | tojson }}, {{ c.id | tojson }})'>
+            {% if loop.first %}✓ {% endif %}Apply this match
+          </button>
+          {% else %}
           <button class="btn {% if loop.first %}btn-success{% else %}btn-secondary{% endif %}" style="flex:1" onclick='startImport({{ stage_path | tojson }}, {{ c.id | tojson }}, false)'>
             {% if loop.first %}✓ {% endif %}Apply this match
           </button>
+          {% endif %}
           {% if single_flac %}
           <button class="btn btn-secondary" style="padding:5px 10px;font-size:10px;color:var(--amber)" onclick='startSplit({{ stage_path | tojson }}, {{ c.id | tojson }})'>⚡ Split</button>
           {% endif %}
@@ -171,6 +192,37 @@ function toggleTracks(id, btn) {
   const hidden = el.style.display === 'none';
   el.style.display = hidden ? 'block' : 'none';
   btn.textContent = hidden ? '▲ Tracks' : '▼ Tracks';
+}
+
+async function queueRematch(albumId, mbUuid) {
+  const panel = document.getElementById('import-panel');
+  const output = document.getElementById('import-output');
+  const status = document.getElementById('import-status');
+  panel.style.display = 'block';
+  panel.scrollIntoView({behavior: 'smooth', block: 'start'});
+  output.textContent = '';
+  status.textContent = 'Queuing…';
+  status.style.color = '';
+
+  const fd = new FormData();
+  fd.append('mb_uuid', mbUuid);
+  let resp;
+  try {
+    resp = await fetch(`/album/${albumId}/queue-rematch`, {method: 'POST', body: fd});
+  } catch (e) {
+    status.textContent = 'Connection failed.';
+    status.style.color = 'var(--red)';
+    return;
+  }
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data.ok) {
+    status.textContent = 'Error: ' + (data.error || resp.status);
+    status.style.color = 'var(--red)';
+    return;
+  }
+  status.textContent = 'Queued — check the library in a few seconds.';
+  status.style.color = 'var(--green)';
+  output.textContent = 'Rematch job added to the import queue.\nBeet will apply the selected MusicBrainz release in the background.\nThe library will update once complete.';
 }
 
 async function startImport(stagePath, mbUuid, useAsIs) {
@@ -226,6 +278,7 @@ async function startImport(stagePath, mbUuid, useAsIs) {
       if (msg.startsWith('[WARNING]')) { hadWarning = true; }
       if (msg === '[DONE]') {
         status.textContent = 'Import complete.';
+        status.style.color = 'var(--green)';
         if (!hadWarning) {
           const fd = new FormData();
           fd.append('path', stagePath);

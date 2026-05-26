@@ -5,7 +5,8 @@ from pathlib import Path
 from flask import Blueprint, Response, abort, render_template, request, stream_with_context
 
 from app import staging as _staging
-from app.importer import stream_import
+from app.beets_api import get_album_by_id
+from app.importer import stream_import  # SSE stream — failed imports only
 from app.lock import acquire_lock, release_lock
 from app.musicbrainz import get_release_by_id, search_releases
 from app.pipeline.matcher import normalise_title as _normalise
@@ -97,15 +98,35 @@ def _compare_tracks(local_files: list[str], mb_tracks: list[TrackDetail]) -> lis
     return rows
 
 
+def _parse_album_id(raw: str) -> int | None:
+    return int(raw) if raw.isdigit() else None
+
+
 @bp.route("/manual-match")
 def index():
     stage_path = request.args.get("stage_path", "")
+    album_id = _parse_album_id(request.args.get("album_id", ""))
+    from_library = album_id is not None
+
+    prefill_artist = ""
+    prefill_query = ""
+
+    # Library rematch: derive stage_path from DB and pre-fill search fields
+    if from_library and not stage_path:
+        album = get_album_by_id(album_id)
+        if album and album["path"]:
+            stage_path = str(Path(album["path"]).parent)
+            prefill_artist = album["artist"]
+            prefill_query = album["album"]
+
     _, _, single_flac = _stage_info(stage_path)
     return render_template(
         "manual_match.html",
         stage_path=stage_path,
-        query="",
-        artist="",
+        album_id=album_id,
+        from_library=from_library,
+        query=prefill_query,
+        artist=prefill_artist,
         candidates=[],
         searched=False,
         apply_id_release=None,
@@ -119,6 +140,8 @@ def index():
 @bp.route("/manual-match/search", methods=["POST"])
 def search():
     stage_path = request.form.get("stage_path", "")
+    album_id = _parse_album_id(request.form.get("album_id", ""))
+    from_library = album_id is not None
     query = request.form.get("query", "").strip()
     artist = request.form.get("artist", "").strip()
     has_input = bool(query or artist)
@@ -147,6 +170,8 @@ def search():
     return render_template(
         "manual_match.html",
         stage_path=stage_path,
+        album_id=album_id,
+        from_library=from_library,
         query=query,
         artist=artist,
         candidates=candidates,
@@ -162,6 +187,8 @@ def search():
 @bp.route("/manual-match/apply-by-id", methods=["POST"])
 def apply_by_id():
     stage_path = request.form.get("stage_path", "")
+    album_id = _parse_album_id(request.form.get("album_id", ""))
+    from_library = album_id is not None
     mb_uuid = request.form.get("mb_uuid", "").strip()
     release = get_release_by_id(mb_uuid) if mb_uuid else None
     local_tracks, using_cue, single_flac = _stage_info(stage_path)
@@ -169,6 +196,8 @@ def apply_by_id():
     return render_template(
         "manual_match.html",
         stage_path=stage_path,
+        album_id=album_id,
+        from_library=from_library,
         query="",
         candidates=[],
         searched=False,

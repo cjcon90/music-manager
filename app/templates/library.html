@@ -67,6 +67,9 @@
         {% endif %}
       </td>
       <td style="white-space:nowrap">
+        <a href="{{ url_for('album.rematch', album_id=album.id) }}"
+           class="btn btn-secondary"
+           style="padding:4px 10px;font-size:11px">Rematch</a>
         <button class="btn btn-secondary fix-art-btn"
                 data-album-id="{{ album.id }}"
                 style="padding:4px 10px;font-size:11px">Fix Art</button>

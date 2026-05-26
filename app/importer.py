@@ -67,6 +67,14 @@ def stream_import(
                         if line.strip():
                             yield f"data: {line}\n\n"
                 child.sendline(mb_uuid)
+                # Beet fetches the release from MusicBrainz and shows a second
+                # [A]pply prompt before accepting confirmation. Wait for it
+                # explicitly — sending A before this prompt appears is unreliable.
+                child.expect(APPLY_PROMPT, timeout=60)
+                if child.before:
+                    for line in child.before.splitlines():
+                        if line.strip():
+                            yield f"data: {line}\n\n"
                 child.sendline("A")
             except pexpect.TIMEOUT:
                 yield "data: [ERROR] Timed out during ID selection\n\n"

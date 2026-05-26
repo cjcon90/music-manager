@@ -8,8 +8,8 @@ def test_stream_import_apply_sends_uuid(mock_spawn):
     child = MagicMock()
     child.before = "Tagging: My Album\n"
     child.after = "[A]pply"
-    # First expect call returns 0 (found [A]pply), second returns 0 (release ID found)
-    child.expect.side_effect = [0, 0, pexpect.EOF(None)]
+    # expect calls: [A]pply prompt, release ID:, second [A]pply prompt, then EOF
+    child.expect.side_effect = [0, 0, 0, pexpect.EOF(None)]
     mock_spawn.return_value = child
 
     from app.importer import stream_import
