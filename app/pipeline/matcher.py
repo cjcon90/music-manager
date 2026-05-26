@@ -23,6 +23,18 @@ _NOISE = re.compile(
     re.IGNORECASE,
 )
 
+# Ripper-added pressing/format annotations — never appear in canonical MB titles.
+# CUE sheets from EAC/dBpoweramp commonly embed these:
+#   {UK, Sterling}  {Original UK}  {EU}  {UK, Sterling LH}
+#   (LP)  (2LP)  (EP)  (CD)  [LP]
+#   (UK version)  (US pressing)  (original version)
+_PRESSING = re.compile(
+    r"\s*\{[^}]+\}"                                             # {UK, Sterling} {EU} etc.
+    r"|\s*[\[(]\s*\d*\s*(?:LP|EP|CD|7\"|12\")\s*[\])]"         # (LP) (2LP) [CD] etc.
+    r"|\s*[\[(][^\])]*\b(?:version|pressing)\b[^\])]*[\])]",    # (UK version) (US pressing) etc.
+    re.IGNORECASE,
+)
+
 
 def normalise_title(s: str) -> str:
     s = re.sub(r"^\d+[\s._\-]+", "", s)
@@ -31,6 +43,7 @@ def normalise_title(s: str) -> str:
 
 def clean_album(album: str) -> str:
     """Strip edition/format noise so MB searches hit the canonical release title."""
+    album = _PRESSING.sub("", album)
     return _NOISE.sub("", album).strip()
 
 
