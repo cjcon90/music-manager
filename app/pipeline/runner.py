@@ -4,10 +4,10 @@ from pathlib import Path
 
 from app import config, staging
 from app.pipeline import AUDIO_EXTS, DISC_PATTERN
-from app.pipeline.detector import CueRipJob, MultiCueRipJob, MultiDiscJob, RegularJob, find_import_jobs
+from app.pipeline.detector import CueRipJob, MultiCueRipJob, MultiDiscJob, MultiFileCueJob, RegularJob, find_import_jobs
 from app.pipeline.importer import ImportResult, run_beet_import
 from app.pipeline.matcher import find_best_release
-from app.pipeline.probe import ProbeResult, probe_cue, probe_cue_file, probe_flac
+from app.pipeline.probe import ProbeResult, probe_cue, probe_cue_file, probe_flac, probe_multi_file_cue
 from app.pipeline.splitter import split_cue_rip
 
 log = logging.getLogger(__name__)
@@ -41,6 +41,8 @@ def run(
             _process_cue_rip(job, path, noincremental, mb_id_override=mb_id_override, move=move)
         elif isinstance(job, MultiCueRipJob):
             _process_multi_cue_rip(job, path, noincremental, mb_id_override=mb_id_override, move=move)
+        elif isinstance(job, MultiFileCueJob):
+            _process_multi_file_cue(job, path, noincremental, mb_id_override=mb_id_override, move=move)
         elif isinstance(job, RegularJob):
             _process_regular(job, path, noincremental, mb_id_override=mb_id_override, move=move)
         elif isinstance(job, MultiDiscJob):
@@ -103,6 +105,51 @@ def _process_multi_cue_rip(job: MultiCueRipJob, source_path: str, noincremental:
     )
     mb_id = mb_id_override if mb_id_override else find_best_release(combined)
     result = run_beet_import(str(stage_root), mb_id=mb_id, noincremental=noincremental, move=move)
+    _handle_result(result, source_path, str(job.path))
+
+
+def _process_multi_file_cue(job: MultiFileCueJob, source_path: str, noincremental: bool, mb_id_override: str | None = None, move: bool = False) -> None:
+    """Handle a directory with N audio files and one CUE that references all of them.
+
+    e.g. a 3LP rip where each side is a separate FLAC (Side A.flac … Side F.flac)
+    described in a single master CUE file.  Each section is split independently
+    into the same flat staging directory; track_numbers from the CUE ensure
+    globally-correct TRACKNUMBER tags and filenames across all sides.
+    """
+    sections = probe_multi_file_cue(job.path)
+    if not sections:
+        log.warning("No sections found in multi-file CUE for %s", job.path)
+        _log_failed(source_path, "skipped")
+        return
+
+    stage_dir = staging.create_stage(str(job.path))
+    all_titles: list[str] = []
+    first: ProbeResult = sections[0]
+
+    for section in sections:
+        # Idempotency: skip if the first track of this section is already split.
+        first_num = section.track_numbers[0] if section.track_numbers else 1
+        if list(stage_dir.glob(f"{first_num:02d} - *.flac")):
+            all_titles.extend(section.track_titles)
+            continue
+        try:
+            split_cue_rip(job.path, stage_dir, section)
+        except Exception as e:
+            log.error("Split failed for %s (%s): %s", job.path, section.source_file, e)
+            _log_failed(source_path, "skipped")
+            staging.delete_stage(str(job.path))
+            return
+        all_titles.extend(section.track_titles)
+
+    combined = ProbeResult(
+        artist=first.artist,
+        album=first.album,
+        year=first.year,
+        track_count=len(all_titles),
+        track_titles=all_titles,
+    )
+    mb_id = mb_id_override if mb_id_override else find_best_release(combined)
+    result = run_beet_import(str(stage_dir), mb_id=mb_id, noincremental=noincremental, move=move)
     _handle_result(result, source_path, str(job.path))
 
 

@@ -23,6 +23,10 @@ class ProbeResult:
     timings: list[float] | None = None
     source_file: Path | None = None
     disc_number: int | None = None
+    # Explicit CUE TRACK numbers — set by probe_multi_file_cue() so that
+    # split_cue_rip() uses globally-correct track numbers (e.g. 7–12 for
+    # Side B) rather than resetting to 1 for each section.
+    track_numbers: list[int] | None = None
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ProbeResult):
@@ -85,6 +89,141 @@ def probe_flac(dirpath: Path) -> ProbeResult:
         track_count=len(titles),
         track_titles=titles,
     )
+
+
+def count_cue_files(cue_path: Path) -> int:
+    """Count FILE entries in a CUE sheet without full parsing.
+
+    Used by the detector to decide whether a single CUE references multiple
+    audio files (multi-file CUE rip) without paying the cost of a full parse.
+    Returns 0 on any read error.
+    """
+    try:
+        content = _read_cue(cue_path)
+        return sum(
+            1 for line in content.splitlines()
+            if re.match(r'\s*FILE\s+"', line, re.IGNORECASE)
+        )
+    except OSError:
+        return 0
+
+
+def probe_multi_file_cue(dirpath: Path) -> list[ProbeResult]:
+    """Parse a multi-file CUE sheet into one ProbeResult per FILE section.
+
+    Used when a single CUE references N audio files (e.g. a 3LP rip where
+    each side is a separate FLAC all described in one master CUE).  Each
+    ProbeResult covers one FILE section; timings are relative to that file's
+    start (as the CUE specifies them).  track_numbers carries the original
+    CUE TRACK numbers so split output is globally-numbered (e.g. 7–12 for
+    Side B) rather than restarting at 1 for each side.
+    """
+    cue_files = sorted(dirpath.glob("*.cue")) + sorted(dirpath.glob("*.CUE"))
+    if not cue_files:
+        return []
+    non_isrc = [f for f in cue_files if "isrc" not in f.name.lower()]
+    cue_path = non_isrc[0] if non_isrc else cue_files[0]
+    return _parse_multi_file_cue(cue_path, dirpath)
+
+
+def _parse_multi_file_cue(cue_path: Path, dirpath: Path) -> list[ProbeResult]:
+    content = _read_cue(cue_path)
+
+    # --- first pass: global header fields (appear before any FILE block) ---
+    global_performer = ""
+    global_title = ""
+    global_date = ""
+
+    for line in content.splitlines():
+        s = line.strip()
+        if not global_performer:
+            m = re.match(r'PERFORMER\s+"(.+)"', s, re.IGNORECASE)
+            if m:
+                global_performer = m.group(1)
+        if not global_title:
+            m = re.match(r'TITLE\s+"(.+)"', s, re.IGNORECASE)
+            if m:
+                global_title = m.group(1)
+        if not global_date:
+            m = re.match(r"REM\s+(?:DATE|YEAR)\s+(\d{4})", s, re.IGNORECASE)
+            if m:
+                global_date = m.group(1)
+
+    if not global_title:
+        global_title = dirpath.name
+
+    if not global_date:
+        for name in (dirpath.name, dirpath.parent.name):
+            ym = re.match(r"^(\d{4})\b", name)
+            if ym:
+                global_date = ym.group(1)
+                break
+
+    # --- second pass: split into per-FILE sections ---
+    # Each section: {source_file, tracks: [{number, title, start}]}
+    sections: list[dict] = []
+    cur_section: dict | None = None
+    cur_track: dict | None = None
+
+    for line in content.splitlines():
+        s = line.strip()
+
+        m = re.match(r'FILE\s+"(.+?)"\s*\S+', s, re.IGNORECASE)
+        if m:
+            candidate = dirpath / m.group(1)
+            cur_section = {
+                "source_file": candidate if candidate.exists() else None,
+                "tracks": [],
+            }
+            sections.append(cur_section)
+            cur_track = None
+            continue
+
+        if cur_section is None:
+            continue
+
+        m = re.match(r"TRACK\s+(\d+)\s+AUDIO", s, re.IGNORECASE)
+        if m:
+            cur_track = {"number": int(m.group(1)), "title": "", "start": None}
+            cur_section["tracks"].append(cur_track)
+            continue
+
+        if cur_track is None:
+            continue
+
+        m = re.match(r'TITLE\s+"(.+)"', s, re.IGNORECASE)
+        if m:
+            cur_track["title"] = m.group(1)
+
+        m = re.match(r"INDEX\s+01\s+(\d+):(\d+):(\d+)", s, re.IGNORECASE)
+        if m:
+            mins, secs, frames = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            cur_track["start"] = mins * 60 + secs + frames / 75
+
+    # --- build one ProbeResult per section ---
+    results: list[ProbeResult] = []
+    for sec in sections:
+        if not sec["source_file"] or not sec["tracks"]:
+            continue
+        tracks = sec["tracks"]
+        titles = [t["title"] or f"Track {t['number']:02d}" for t in tracks]
+        numbers = [t["number"] for t in tracks]
+        starts = [t["start"] for t in tracks]
+        timings: list[float] | None = (
+            starts if (starts and all(s is not None for s in starts)) else None
+        )
+        results.append(ProbeResult(
+            artist=global_performer,
+            album=global_title,
+            year=global_date,
+            track_count=len(tracks),
+            track_titles=titles,
+            timings=timings,
+            source_file=sec["source_file"],
+            track_numbers=numbers,
+        ))
+
+    return results
 
 
 def _parse_cue(cue_path: Path, dirpath: Path) -> ProbeResult:

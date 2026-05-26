@@ -19,7 +19,9 @@ def split_cue_rip(source_dir: Path, stage_dir: Path, probe: ProbeResult | None =
     is_flac = audio.suffix.lower() == ".flac"
 
     for i, (title, start) in enumerate(zip(probe.track_titles, probe.timings)):
-        num = i + 1
+        # Use explicit CUE TRACK numbers when available (set by probe_multi_file_cue
+        # so that globally-numbered tracks like 7–12 on Side B are not reset to 1–6).
+        num = probe.track_numbers[i] if probe.track_numbers else i + 1
         end = probe.timings[i + 1] if i + 1 < len(probe.timings) else None
         safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", title).strip()
         out = stage_dir / f"{num:02d} - {safe}.flac"
