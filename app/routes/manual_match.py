@@ -17,7 +17,7 @@ bp = Blueprint("manual_match", __name__)
 
 
 def _local_tracks(stage_path: str) -> list[str]:
-    audio_exts = {".flac", ".mp3", ".m4a", ".ogg", ".opus", ".wav", ".wv", ".ape"}
+    audio_exts = {".flac", ".mp3", ".m4a", ".ogg", ".opus", ".wav", ".wv", ".ape", ".dsf", ".dff"}
     try:
         return [f for f in sorted(os.listdir(stage_path)) if os.path.splitext(f)[1].lower() in audio_exts]
     except OSError:
@@ -63,7 +63,7 @@ def _stage_info(stage_path: str) -> tuple[list[str], bool, bool]:
 
 
 def _compare_tracks(local_files: list[str], mb_tracks: list[TrackDetail]) -> list[TrackRow]:
-    local_norm = [(_normalise(f), f) for f in local_files]
+    local_norm = [(_normalise(os.path.splitext(f)[0]), f) for f in local_files]
     mb_norm = [(_normalise(t["title"]), t) for t in mb_tracks]
 
     rows: list[TrackRow] = []
@@ -133,6 +133,13 @@ def search():
             c["score"] = int(matched / total * 100) if total > 0 else 0
             c["score_label"] = "track match"
             c["track_rows"] = rows
+        elif local_tracks and c["track_count"] > 0:
+            # MB search results omit track listings — score by track count similarity
+            local_count = len(local_tracks)
+            mb_count = c["track_count"]
+            c["score"] = int(min(local_count, mb_count) / max(local_count, mb_count) * 100)
+            c["score_label"] = "track count"
+            c["track_rows"] = []
         else:
             c["score_label"] = "relevance"
             c["track_rows"] = []

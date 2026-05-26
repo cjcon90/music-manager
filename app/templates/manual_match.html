@@ -91,6 +91,18 @@
         <div class="text-secondary" style="font-size:11px">{{ candidates | length }} candidates found</div>
         <div class="text-tertiary" style="font-size:10px">sorted by match score</div>
       </div>
+      {% if local_tracks %}
+      <div style="padding:6px 14px;border-bottom:1px solid var(--border);background:var(--bg-secondary);display:flex;align-items:center;gap:8px">
+        <span class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Your files</span>
+        <span style="font-size:12px;font-weight:600">{{ local_tracks | length }} tracks</span>
+        <button class="btn btn-secondary" style="margin-left:auto;padding:3px 8px;font-size:10px" onclick="var d=document.getElementById('local-files-list');var hidden=d.style.display==='none';d.style.display=hidden?'block':'none';this.textContent=hidden?'▲ Hide':'▼ Show'">▼ Show</button>
+      </div>
+      <div id="local-files-list" style="display:none;background:var(--bg-secondary);border-bottom:1px solid var(--border)">
+        {% for f in local_tracks %}
+        <div style="padding:3px 14px;border-bottom:1px solid #161616;font-size:11px;color:var(--text-secondary)">{{ f }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
       {% for c in candidates %}
       <div style="padding:12px 14px;border-bottom:1px solid var(--border);{% if loop.first %}background:#0f1f0f;border-left:3px solid var(--green);{% endif %}">
         <div style="display:flex;justify-content:space-between;margin-bottom:6px">
@@ -118,13 +130,12 @@
           <button class="btn btn-secondary" style="padding:5px 10px;font-size:10px;color:var(--amber)" onclick='startSplit({{ stage_path | tojson }}, {{ c.id | tojson }})'>⚡ Split</button>
           {% endif %}
           <a href="https://musicbrainz.org/release/{{ c.id }}" target="_blank" class="btn btn-secondary" style="padding:5px 10px;font-size:10px">MB →</a>
-          {% if c.track_rows or local_tracks %}
+          {% if c.track_rows %}
           <button class="btn btn-secondary" style="padding:5px 10px;font-size:10px" onclick="toggleTracks('tracks-{{ loop.index }}', this)">▼ Tracks</button>
           {% endif %}
         </div>
-        {% if c.track_rows or local_tracks %}
+        {% if c.track_rows %}
         <div id="tracks-{{ loop.index }}" style="display:none;border-top:1px solid var(--border);margin-top:6px">
-          {% if c.track_rows %}
           {% for row in c.track_rows %}
           <div style="display:grid;grid-template-columns:1fr 24px 1fr;padding:4px 0;border-bottom:1px solid #161616;align-items:center;{% if row.status == 'diff' %}background:#1a1500;{% elif row.status in ('missing','extra') %}background:#1a0a0a;{% endif %}">
             <div style="font-size:11px;color:{% if row.status == 'match' %}#ccc{% elif row.status == 'diff' %}#fde68a{% else %}#f87171{% endif %}">{{ row.local or '—' }}</div>
@@ -132,16 +143,6 @@
             <div style="font-size:11px;color:{% if row.status == 'match' %}#ccc{% elif row.status == 'diff' %}#fde68a{% else %}#f87171{% endif %}">{{ row.mb or '—' }}</div>
           </div>
           {% endfor %}
-          {% else %}
-          <div style="padding:4px 0 2px;border-bottom:1px solid var(--border)">
-            <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;padding:2px 0 4px">Your files ({% if using_cue %}CUE{% else %}stage{% endif %})</div>
-          </div>
-          {% for f in local_tracks %}
-          <div style="padding:3px 0;border-bottom:1px solid #161616">
-            <div style="font-size:11px;color:#aaa">{{ f }}</div>
-          </div>
-          {% endfor %}
-          {% endif %}
         </div>
         {% endif %}
       </div>
