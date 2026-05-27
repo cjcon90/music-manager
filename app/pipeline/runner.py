@@ -1,22 +1,17 @@
 import logging
-import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from app import config, staging
 from app.pipeline import AUDIO_EXTS, DISC_PATTERN
-from app.pipeline.detector import CueRipJob, MultiCueRipJob, MultiDiscJob, MultiFileCueJob, RegularJob, find_import_jobs
+from app.pipeline.detector import CueRipJob, MultiCueRipJob, MultiDiscJob, MultiFileCueJob, RegularJob, _RELAXED_DISC_PATTERN, disc_is_image_cue, find_import_jobs, looks_like_multi_disc_cue_rip, looks_like_multi_disc_regular
 from app.pipeline.importer import ImportResult, run_beet_import
 from app.pipeline.matcher import find_best_release
 from app.pipeline.probe import ProbeResult, probe_cue, probe_cue_file, probe_flac, probe_multi_file_cue
 from app.pipeline.splitter import split_cue_rip
 
 log = logging.getLogger(__name__)
-
-# Relaxed pattern for multi-disc-cue detection: matches "CD01 - Title", "Disc 2 - ...", etc.
-# Only used for pre-detection override; global DISC_PATTERN stays strict.
-_RELAXED_DISC_PATTERN = re.compile(r"^(?:cd|disc|disk)\s*\d+\b", re.IGNORECASE)
 
 
 @dataclass
@@ -79,11 +74,11 @@ def run(
         move=move,
     )
 
-    if mb_id_override and _looks_like_multi_disc_cue_rip(root):
+    if mb_id_override and looks_like_multi_disc_cue_rip(root):
         _process_multi_disc_cue_override(root, ctx)
         return
 
-    if mb_id_override and _looks_like_multi_disc_regular(root):
+    if mb_id_override and looks_like_multi_disc_regular(root):
         _process_multi_disc_regular_override(root, ctx)
         return
 
@@ -197,23 +192,12 @@ def _process_regular(job: RegularJob, ctx: ImportContext) -> None:
     _handle_result(result, ctx.source_path, str(job.path))
 
 
-def _disc_is_image_cue(d: Path) -> bool:
-    """Return True only if this disc dir is an unsplit disc image: single audio file + CUE.
-
-    Pre-split albums sometimes include a leftover .cue file alongside the individual tracks;
-    those should NOT be treated as disc images requiring splitting.
-    """
-    audio = [f for f in d.iterdir() if f.is_file() and f.suffix.lower() in AUDIO_EXTS]
-    cue = list(d.glob("*.cue")) + list(d.glob("*.CUE"))
-    return len(audio) == 1 and len(cue) >= 1
-
-
 def _process_multi_disc(job: MultiDiscJob, ctx: ImportContext) -> None:
     disc_dirs = sorted(
         d for d in job.path.iterdir()
         if d.is_dir() and DISC_PATTERN.match(d.name)
     )
-    has_cue = any(_disc_is_image_cue(d) for d in disc_dirs)
+    has_cue = any(disc_is_image_cue(d) for d in disc_dirs)
 
     if not has_cue:
         all_titles: list[str] = []
@@ -282,32 +266,6 @@ def _log_failed(path: str, kind: str) -> None:
     log_failed(path, kind)
 
 
-def _looks_like_multi_disc_regular(root: Path) -> bool:
-    """Return True if root has >=2 subdirs each containing audio files but no audio in root itself.
-
-    Used to detect multi-disc releases where the subdirectories are named after
-    the individual discs (e.g. "Artist - Disc Title") rather than the standard
-    CD1/Disc 2 pattern that MultiDiscJob requires.  Gated on mb_id_override so
-    it never fires during automatic imports — only when the user has explicitly
-    identified the combined release.
-
-    CUE rip cases are already intercepted by _looks_like_multi_disc_cue_rip
-    before this check runs.
-    """
-    try:
-        # Root must not contain audio files directly
-        if any(f.is_file() and f.suffix.lower() in AUDIO_EXTS for f in root.iterdir()):
-            return False
-        audio_subdirs = [
-            d for d in root.iterdir()
-            if d.is_dir() and not d.name.startswith(".")
-            and any(f.is_file() and f.suffix.lower() in AUDIO_EXTS for f in d.iterdir())
-        ]
-        return len(audio_subdirs) >= 2
-    except OSError:
-        return False
-
-
 def _process_multi_disc_regular_override(
     root: Path,
     ctx: ImportContext,
@@ -363,22 +321,6 @@ def _process_multi_disc_regular_override(
         move=ctx.move,
     )
     _handle_result(result, ctx.source_path, ctx.source_path)
-
-
-def _looks_like_multi_disc_cue_rip(root: Path) -> bool:
-    """Return True if root contains ≥2 subdirs that each look like disc-image CUE rips.
-
-    Uses _RELAXED_DISC_PATTERN so "CD01 - Title" matches even though the strict
-    DISC_PATTERN (used by the detector) requires a clean "CD1" form.
-    """
-    try:
-        disc_dirs = [
-            d for d in root.iterdir()
-            if d.is_dir() and _RELAXED_DISC_PATTERN.match(d.name)
-        ]
-    except OSError:
-        return False
-    return len(disc_dirs) >= 2 and all(_disc_is_image_cue(d) for d in disc_dirs)
 
 
 def _process_multi_disc_cue_override(
