@@ -11,7 +11,7 @@ from app.pipeline.detector import (
     MultiDiscJob,
     MultiFileCueJob,
     RegularJob,
-    _RELAXED_DISC_PATTERN,
+    RELAXED_DISC_PATTERN,
     disc_is_image_cue,
     find_import_jobs,
     looks_like_multi_disc_cue_rip,
@@ -342,7 +342,7 @@ def _process_multi_disc_cue_override(
     """
     disc_dirs = sorted(
         d for d in root.iterdir()
-        if d.is_dir() and _RELAXED_DISC_PATTERN.match(d.name)
+        if d.is_dir() and RELAXED_DISC_PATTERN.match(d.name)
     )
     if not disc_dirs:
         log_failed(ctx.source_path, "skipped")

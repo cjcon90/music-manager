@@ -109,7 +109,7 @@ def _is_multi_disc(dirnames: list[str]) -> bool:
 
 # Relaxed pattern for pre-detection overrides: matches "CD01 - Title", "Disc 2 - ...", etc.
 # The strict DISC_PATTERN (used by _is_multi_disc) requires a plain "CD1" form.
-_RELAXED_DISC_PATTERN: re.Pattern[str] = re.compile(r"^(?:cd|disc|disk)\s*\d+\b", re.IGNORECASE)
+RELAXED_DISC_PATTERN: re.Pattern[str] = re.compile(r"^(?:cd|disc|disk)\s*\d+\b", re.IGNORECASE)
 
 
 def disc_is_image_cue(d: Path) -> bool:
@@ -126,14 +126,14 @@ def disc_is_image_cue(d: Path) -> bool:
 def looks_like_multi_disc_cue_rip(root: Path) -> bool:
     """Return True if root contains ≥2 subdirs that each look like disc-image CUE rips.
 
-    Uses _RELAXED_DISC_PATTERN so "CD01 - Title" matches even though the strict
+    Uses RELAXED_DISC_PATTERN so "CD01 - Title" matches even though the strict
     DISC_PATTERN requires a clean "CD1" form. Only relevant when mb_id_override
     is set — never called during fully automatic imports.
     """
     try:
         disc_dirs = [
             d for d in root.iterdir()
-            if d.is_dir() and _RELAXED_DISC_PATTERN.match(d.name)
+            if d.is_dir() and RELAXED_DISC_PATTERN.match(d.name)
         ]
     except OSError:
         return False
