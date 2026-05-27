@@ -1,11 +1,10 @@
 import fcntl
 import os
-import uuid
 
-from flask import Blueprint, abort, redirect, render_template, request, url_for
+from flask import Blueprint, redirect, render_template, request, url_for
 
 from app import config
-from app.lock import is_locked
+from app.queue_writer import write_queue_job
 from app.types import FailedEntry
 
 bp = Blueprint("failed", __name__)
@@ -109,16 +108,10 @@ def dismiss():
 
 @bp.route("/failed/requeue", methods=["POST"])
 def requeue():
-    if is_locked():
-        abort(409)
     path = request.form.get("path", "").strip()
     line = request.form.get("line", "").strip()
     if path:
-        fname = uuid.uuid4().hex[:10] + ".path"
-        fpath = os.path.join(config.IMPORT_QUEUE_DIR, fname)
-        with open(fpath, "w") as f:
-            f.write(path + "\n")
-            f.write("--noincremental\n")
+        write_queue_job(path, noincremental=True, prefix="requeue")
         if line:
             _dismiss_line(line)
     return redirect(url_for("failed.index"))

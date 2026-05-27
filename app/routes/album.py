@@ -1,14 +1,13 @@
-import hashlib
 import mimetypes
 import os
 import subprocess
-import time
 from pathlib import Path
 
 from flask import Blueprint, Response, jsonify, make_response, redirect, request, send_file, url_for
 
 from app import config
 from app.beets_api import get_album_by_id, get_album_tracks
+from app.queue_writer import write_queue_job
 from mutagen.flac import FLAC
 
 bp = Blueprint("album", __name__)
@@ -79,11 +78,10 @@ def rematch(album_id: int) -> Response:
 
 @bp.route("/album/<int:album_id>/queue-rematch", methods=["POST"])
 def queue_rematch(album_id: int) -> Response:
-    """Enqueue a library rematch job — returns immediately, watcher applies it in the background.
+    """Enqueue a library rematch — watcher applies it in the background.
 
-    The .path file written uses --search-id so beet applies the chosen release
-    without any interactive prompts, and --move so files relocate cleanly if the
-    path changes (e.g. artist name corrected) without leaving orphaned copies.
+    Uses --move so beet relocates files cleanly when the artist/album path
+    changes (e.g. artist name corrected), avoiding orphaned copies.
     """
     mb_uuid = request.form.get("mb_uuid", "").strip()
     if not mb_uuid:
@@ -94,11 +92,5 @@ def queue_rematch(album_id: int) -> Response:
         return jsonify({"ok": False, "error": "Album not found"}), 404
 
     album_path = str(Path(album["path"]).parent)
-    queue_dir = Path(config.IMPORT_QUEUE_DIR)
-    queue_dir.mkdir(parents=True, exist_ok=True, mode=0o777)
-
-    tag = hashlib.sha256(f"rematch-{album_id}-{mb_uuid}-{time.time()}".encode()).hexdigest()[:8]
-    path_file = queue_dir / f"rematch-{tag}.path"
-    path_file.write_text(f"{album_path}\n--noincremental\n--search-id={mb_uuid}\n--move\n")
-
+    write_queue_job(album_path, noincremental=True, search_id=mb_uuid, move=True, prefix="rematch")
     return jsonify({"ok": True})

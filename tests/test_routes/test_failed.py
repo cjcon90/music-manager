@@ -135,12 +135,6 @@ def test_failed_requeue_auto_dismisses(client, tmp_path):
     assert b"Let It Be" in resp.data
 
 
-@patch("app.routes.failed.is_locked", return_value=True)
-def test_failed_requeue_blocked_when_locked(mock_lock, client):
-    resp = client.post("/failed/requeue", data={"path": "/some/path", "line": "some line"})
-    assert resp.status_code == 409
-
-
 ERROR_LOG = (
     "2026-05-20 10:00:00 | nomatch | /media/downloads/complete/music/Beatles - Let It Be\n"
     "2026-05-20 11:00:00 | error | /media/downloads/complete/music/Beck - Sea Change\n"

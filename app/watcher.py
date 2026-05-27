@@ -1,4 +1,3 @@
-import hashlib
 import logging
 import os
 import threading
@@ -7,6 +6,7 @@ from pathlib import Path
 
 from app import config
 from app.pipeline import runner
+from app.queue_writer import write_queue_job
 
 log = logging.getLogger(__name__)
 
@@ -21,12 +21,11 @@ def start_watcher() -> None:
 
 
 def _recover_interrupted_import() -> None:
-    """Re-queue any import that was interrupted by a container restart.
+    """Re-queue any import interrupted by a container restart.
 
     The watcher writes the current path to IMPORT_ACTIVE_FILE before calling
     runner.run() and removes it in the finally block. If the container is killed
-    mid-import, that file remains. On the next startup we re-queue the path so
-    the import is retried automatically rather than silently abandoned.
+    mid-import, that file remains. On startup we re-queue it for automatic retry.
     """
     active = Path(config.IMPORT_ACTIVE_FILE)
     if not active.exists():
@@ -36,11 +35,7 @@ def _recover_interrupted_import() -> None:
     if not path:
         return
     log.warning("Detected interrupted import for %s — re-queuing", path)
-    queue_dir = Path(config.IMPORT_QUEUE_DIR)
-    queue_dir.mkdir(parents=True, exist_ok=True, mode=0o777)
-    tag = hashlib.sha256(f"{path}{time.time()}".encode()).hexdigest()[:8]
-    recovery_file = queue_dir / f"recovery-{tag}.path"
-    recovery_file.write_text(f"{path}\n--noincremental\n")
+    write_queue_job(path, noincremental=True, prefix="recovery")
 
 
 def _watcher_loop() -> None:

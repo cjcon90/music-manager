@@ -7,6 +7,7 @@ from flask import Blueprint, abort, redirect, render_template, request, url_for
 
 from app import config
 from app.lock import is_locked
+from app.queue_writer import write_queue_job
 from app.routes.failed import read_all_failed_paths
 from app.types import ActiveImport, QueuedPath
 
@@ -107,29 +108,18 @@ def index() -> str:
 
 @bp.route("/queue/add", methods=["POST"])
 def add():
-    if is_locked():
-        abort(409)
-
     path = request.form.get("path", "").strip()
     if not path:
         abort(400)
-    path = path.splitlines()[0]  # prevent newline injection into .path file flags
+    path = path.splitlines()[0]  # prevent newline injection into .path flags
 
     search_id_raw = request.form.get("search_id", "").strip()
-    search_id = search_id_raw if re.fullmatch(
+    search_id: str | None = search_id_raw if re.fullmatch(
         r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
         search_id_raw, re.IGNORECASE,
-    ) else ""
+    ) else None
 
-    slug = re.sub(r"[^\w-]", "_", os.path.basename(path))[:40]
-    fname = f"{int(time.time())}_{slug}.path"
-    os.makedirs(config.IMPORT_QUEUE_DIR, exist_ok=True)
-    with open(os.path.join(config.IMPORT_QUEUE_DIR, fname), "w") as f:
-        f.write(path + "\n")
-        f.write("--noincremental\n")
-        if search_id:
-            f.write(f"--search-id={search_id}\n")
-
+    write_queue_job(path, noincremental=True, search_id=search_id, prefix="browse")
     return redirect(url_for("queue.index"))
 
 

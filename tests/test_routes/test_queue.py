@@ -1,5 +1,4 @@
 import os
-from unittest.mock import patch
 
 
 def test_queue_page_loads(client):
@@ -26,9 +25,3 @@ def test_queue_add_creates_path_file(client, tmp_path):
 def test_queue_add_rejects_empty_path(client):
     resp = client.post("/queue/add", data={"path": ""})
     assert resp.status_code in (400, 302)
-
-
-@patch("app.routes.queue.is_locked", return_value=True)
-def test_queue_add_blocked_when_locked(mock_lock, client):
-    resp = client.post("/queue/add", data={"path": "/some/path"})
-    assert resp.status_code == 409

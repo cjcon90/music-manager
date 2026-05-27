@@ -1,7 +1,5 @@
-import hashlib
 import os
 import re
-import time
 from pathlib import Path
 
 from flask import Blueprint, Response, abort, jsonify, render_template, request, stream_with_context
@@ -13,6 +11,7 @@ from app.musicbrainz import get_release_by_id, search_releases
 from app.pipeline.matcher import normalise_title as _normalise
 from app.pipeline.probe import probe_cue
 from app.pipeline.splitter import split_cue_rip
+from app.queue_writer import write_queue_job
 from app.types import TrackDetail, TrackRow
 
 bp = Blueprint("manual_match", __name__)
@@ -214,10 +213,9 @@ def apply_by_id():
 def queue_apply():
     """Queue a manual-match import job — returns immediately, watcher applies it in the background.
 
-    This mirrors /album/<id>/queue-rematch but is used for failed imports where we have a
-    stage_path (the original failed job directory) rather than a library album_id.
+    stage_path is the original download directory (the failed import path).
+    mb_uuid identifies the MB release to apply.
     """
-    from app import config
     from app.routes.failed import dismiss_failed_entry as _dismiss
 
     stage_path = request.form.get("stage_path", "").strip()
@@ -231,16 +229,8 @@ def queue_apply():
     ):
         return jsonify({"ok": False, "error": "invalid mb_uuid"}), 400
 
-    queue_dir = Path(config.IMPORT_QUEUE_DIR)
-    queue_dir.mkdir(parents=True, exist_ok=True, mode=0o777)
-
-    tag = hashlib.sha256(f"manual-{stage_path}-{mb_uuid}-{time.time()}".encode()).hexdigest()[:8]
-    path_file = queue_dir / f"manual-{tag}.path"
-    path_file.write_text(f"{stage_path}\n--noincremental\n--search-id={mb_uuid}\n")
-
-    # Optimistically dismiss the failed-imports entry so the UI stays clean
+    write_queue_job(stage_path, noincremental=True, search_id=mb_uuid, prefix="manual")
     _dismiss(stage_path)
-
     return jsonify({"ok": True})
 
 
