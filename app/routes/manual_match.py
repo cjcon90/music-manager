@@ -8,6 +8,7 @@ from app import staging as _staging
 from app.beets_api import get_album_by_id
 from app.lock import acquire_lock, release_lock
 from app.musicbrainz import get_release_by_id, search_releases
+from app.pipeline import AUDIO_EXTS
 from app.pipeline.matcher import normalise_title as _normalise
 from app.pipeline.probe import probe_cue
 from app.pipeline.splitter import split_cue_rip
@@ -18,48 +19,29 @@ bp = Blueprint("manual_match", __name__)
 
 
 def _local_tracks(stage_path: str) -> list[str]:
-    audio_exts = {".flac", ".mp3", ".m4a", ".ogg", ".opus", ".wav", ".wv", ".ape", ".dsf", ".dff"}
+    """Return sorted list of audio filenames found in stage_path."""
     try:
-        return [f for f in sorted(os.listdir(stage_path)) if os.path.splitext(f)[1].lower() in audio_exts]
+        return [
+            f for f in sorted(os.listdir(stage_path))
+            if os.path.splitext(f)[1].lower() in AUDIO_EXTS
+        ]
     except OSError:
         return []
-
-
-def _cue_tracks(stage_path: str) -> list[str]:
-    """Return track titles from a .cue file in the parent directory of stage_path."""
-    parent = os.path.dirname(stage_path)
-    try:
-        cue_files = sorted(f for f in os.listdir(parent) if f.lower().endswith(".cue"))
-    except OSError:
-        return []
-    if not cue_files:
-        return []
-    tracks: list[str] = []
-    in_track = False
-    try:
-        with open(os.path.join(parent, cue_files[0]), encoding="utf-8", errors="replace") as f:
-            for line in f:
-                line = line.strip()
-                if re.match(r"TRACK\s+\d+\s+AUDIO", line, re.IGNORECASE):
-                    in_track = True
-                elif in_track and re.match(r'TITLE\s+"', line, re.IGNORECASE):
-                    m = re.match(r'TITLE\s+"(.+)"', line, re.IGNORECASE)
-                    if m:
-                        tracks.append(m.group(1))
-                    in_track = False
-    except OSError:
-        return []
-    return tracks
 
 
 def _stage_info(stage_path: str) -> tuple[list[str], bool, bool]:
-    """Return (display_tracks, using_cue, is_single_flac) from a single directory read."""
+    """Return (display_tracks, using_cue, is_single_flac) for a stage directory.
+
+    When the directory contains exactly one FLAC and a CUE sheet is available in
+    the parent directory, display_tracks contains the CUE track titles rather than
+    the bare filename — giving the user meaningful track names during matching.
+    """
     files = _local_tracks(stage_path)
     single_flac = len(files) == 1 and files[0].lower().endswith(".flac")
     if single_flac:
-        cue = _cue_tracks(stage_path)
-        if cue:
-            return cue, True, True
+        probe = probe_cue(Path(stage_path).parent)
+        if probe.track_titles:
+            return probe.track_titles, True, True
     return files, False, single_flac
 
 
