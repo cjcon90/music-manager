@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.pipeline.importer import ImportResult, run_beet_import
+from app.pipeline.importer import ImportResult, run_beet_command, run_beet_import
 
 
 def _mock_run(stdout: str = "", returncode: int = 0) -> MagicMock:
@@ -85,7 +85,6 @@ def test_output_combines_stdout_stderr(mock_run):
     assert "stderr line" in result.output
 
 
-from app.pipeline.importer import run_beet_command
 
 
 @patch("app.pipeline.importer.subprocess.run")
