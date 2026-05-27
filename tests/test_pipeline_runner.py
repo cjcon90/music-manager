@@ -192,3 +192,123 @@ def test_resolve_mb_id_returns_none_when_no_override_and_probe_empty():
     probe = ProbeResult()
     result = _resolve_mb_id(ctx, probe)
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _process_regular: CUE fallback when FLAC tags are empty
+# ---------------------------------------------------------------------------
+
+@patch("app.pipeline.runner.find_best_release", return_value="mb-whos-next")
+@patch("app.pipeline.runner.run_beet_import", return_value=ImportResult("imported", ""))
+@patch("app.pipeline.runner.probe_cue")
+@patch("app.pipeline.runner.probe_flac")
+def test_regular_cue_fallback_when_flac_tags_empty(
+    mock_flac, mock_cue, mock_import, mock_mb, tmp_path
+):
+    """When FLAC tags have no artist/album, CUE metadata fills the gap.
+
+    Reproduces the Who's Next pattern: pre-split FLACs with zero embedded tags
+    alongside a companion CUE that has PERFORMER/TITLE in its header.
+    """
+    # FLAC probe: no tags, but filename-derived track titles
+    mock_flac.return_value = MagicMock(
+        artist="", album="",
+        track_count=9,
+        track_titles=["01 - Baba O'Riley", "02 - Bargain", "03 - Love Ain't for Keeping"],
+    )
+    # CUE probe: has identity metadata
+    mock_cue.return_value = MagicMock(
+        artist="The Who", album="Who's Next",
+        track_count=9,
+        track_titles=["Baba O'Riley", "Bargain", "Love Ain't for Keeping"],
+    )
+
+    d = _make_regular(tmp_path, name="Who's Next")
+    (d / "album.cue").touch()  # companion CUE exists
+    run(str(d))
+
+    # find_best_release must have been called with the CUE-supplied identity
+    call_arg = mock_mb.call_args[0][0]
+    assert call_arg.artist == "The Who"
+    assert call_arg.album == "Who's Next"
+    # but track_count and track_titles come from the FLACs
+    assert call_arg.track_count == 9
+    assert call_arg.track_titles == ["01 - Baba O'Riley", "02 - Bargain", "03 - Love Ain't for Keeping"]
+
+    mock_import.assert_called_once()
+    assert mock_import.call_args[1]["mb_id"] == "mb-whos-next"
+
+
+@patch("app.pipeline.runner.find_best_release", return_value="mb-album")
+@patch("app.pipeline.runner.run_beet_import", return_value=ImportResult("imported", ""))
+@patch("app.pipeline.runner.probe_cue")
+@patch("app.pipeline.runner.probe_flac")
+def test_regular_flac_tags_used_when_present(
+    mock_flac, mock_cue, mock_import, mock_mb, tmp_path
+):
+    """When FLAC tags are present, CUE probe is never called."""
+    mock_flac.return_value = MagicMock(
+        artist="The Who", album="Quadrophenia",
+        track_count=5,
+        track_titles=["T1", "T2", "T3", "T4", "T5"],
+    )
+
+    d = _make_regular(tmp_path)
+    run(str(d))
+
+    mock_cue.assert_not_called()
+    mock_import.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Rematch pre-remove step: beet remove before re-import
+# ---------------------------------------------------------------------------
+
+@patch("app.pipeline.runner.run_beet_command")
+@patch("app.pipeline.runner.find_best_release", return_value="mb-tommy-new")
+@patch("app.pipeline.runner.run_beet_import", return_value=ImportResult("imported", "Tagging:\n  The Who - Tommy\n"))
+@patch("app.pipeline.runner.probe_flac")
+def test_rematch_removes_existing_db_entries_before_import(
+    mock_flac, mock_import, mock_mb, mock_cmd, tmp_path
+):
+    """Rematch (move=True) must call beet remove before beet import.
+
+    Without this, duplicate_action:skip causes beet to skip library files
+    that are already in the database, making every rematch silently fail.
+    """
+    mock_flac.return_value = MagicMock(
+        artist="The Who", album="Tommy",
+        track_count=3, track_titles=["T1", "T2", "T3"],
+    )
+    mock_cmd.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+    d = _make_regular(tmp_path, name="Tommy")
+    run(str(d), move=True)
+
+    # beet remove must have been called before beet import
+    mock_cmd.assert_called_once()
+    remove_cmd = mock_cmd.call_args[0][0]
+    assert "remove" in remove_cmd
+    assert "-f" in remove_cmd
+
+    mock_import.assert_called_once()
+
+
+@patch("app.pipeline.runner.run_beet_command")
+@patch("app.pipeline.runner.find_best_release", return_value="mb-new")
+@patch("app.pipeline.runner.run_beet_import", return_value=ImportResult("imported", "Tagging:\n  Artist - Album\n"))
+@patch("app.pipeline.runner.probe_flac")
+def test_normal_import_does_not_call_beet_remove(
+    mock_flac, mock_import, mock_mb, mock_cmd, tmp_path
+):
+    """Normal (non-rematch) imports must NOT call beet remove."""
+    mock_flac.return_value = MagicMock(
+        artist="Artist", album="Album",
+        track_count=3, track_titles=["T1", "T2", "T3"],
+    )
+
+    d = _make_regular(tmp_path)
+    run(str(d), move=False)
+
+    mock_cmd.assert_not_called()
+    mock_import.assert_called_once()

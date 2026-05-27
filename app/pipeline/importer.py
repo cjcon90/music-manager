@@ -11,6 +11,11 @@ log = logging.getLogger(__name__)
 # Serialise all beet invocations — beet's SQLite DB does not tolerate concurrent writers
 _beet_lock = threading.Lock()
 
+# Config overlay applied whenever the user has explicitly chosen an MB release ID.
+# Sets strong_rec_thresh: 1.0 so beet auto-applies the match regardless of
+# track-length differences between pressings. The user already made the call.
+_MB_ID_CONFIG = os.path.join(BEETSDIR, "rematch-config.yaml")
+
 
 def run_beet_command(
     cmd: list[str],
@@ -49,8 +54,17 @@ def run_beet_import(
     noincremental: bool = True,
     move: bool = False,
 ) -> ImportResult:
-    """Run beet import under the serialisation lock; return a structured ImportResult."""
-    cmd = ["beet", "import", "--quiet"]
+    """Run beet import under the serialisation lock; return a structured ImportResult.
+
+    When mb_id is set the user has explicitly chosen the release — bypass beet's
+    quality threshold by loading the rematch config overlay (strong_rec_thresh: 1.0).
+    Automatic imports (mb_id=None) use the standard config thresholds.
+    """
+    cmd = ["beet"]
+    if mb_id:
+        # User-selected release: accept any match distance.
+        cmd += ["-c", _MB_ID_CONFIG]
+    cmd += ["import", "--quiet"]
     if noincremental:
         cmd.append("--noincremental")
     if move:
@@ -88,15 +102,11 @@ def run_beet_import(
     if "No files imported" in output:
         return ImportResult(status="duplicate", output=output)
 
-    # Sanity check: beet exited 0 but produced no output that references our path.
-    # This happens when beet crashes silently (e.g. DB lock race). Treat as failure
-    # so it surfaces in the failed log rather than disappearing.
-    if path not in output:
-        msg = output.strip() or "[no output]"
-        log.error("beet silent failure for %s — path absent from output: %s", path, msg)
+    if not output.strip():
+        log.error("beet silent failure for %s — no output produced", path)
         return ImportResult(
             status="nomatch",
-            output=f"[beet silent failure — no output for path]\n{output}",
+            output="[beet silent failure — no output]",
         )
 
     return ImportResult(status="imported", output=output)

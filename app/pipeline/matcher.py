@@ -5,29 +5,11 @@ from app.pipeline.probe import ProbeResult
 
 MATCH_THRESHOLD = 0.70
 
-# Suffixes that appear in filenames/CUE sheets but not in MusicBrainz release titles.
-# Stripped before searching so Japanese pressings, remasters, etc. still match.
-_NOISE = re.compile(
-    r"\s*[\[(]?"
-    r"(?:SHM-?CD|SACD|HDCD|XRCD|UHQCD|MQA"
-    r"|(?:Super\s+)?Hi(?:gh)?[\s-]?Res(?:olution)?"
-    r"|Remaster(?:ed)?(?:\s+\d{4})?"
-    r"|\d{4}\s+Remaster(?:ed)?"
-    r"|Deluxe(?:\s+Edition)?"
-    r"|Expanded(?:\s+Edition)?"
-    r"|Special(?:\s+Edition)?"
-    r"|(?:\d+(?:th|st|nd|rd)\s+)?Anniversary(?:\s+Edition)?"
-    r"|Bonus\s+Tracks?"
-    r"|Japan(?:ese)?(?:\s+Edition)?"
-    r")[\])]?.*$",
-    re.IGNORECASE,
-)
-
 # Ripper-added pressing/format annotations — never appear in canonical MB titles.
 # CUE sheets from EAC/dBpoweramp commonly embed these:
-#   {UK, Sterling}  {Original UK}  {EU}  {UK, Sterling LH}
+#   {UK, Sterling}  {Original UK}  {EU}
 #   (LP)  (2LP)  (EP)  (CD)  [LP]
-#   (UK version)  (US pressing)  (original version)
+#   (UK version)  (US pressing)
 _PRESSING = re.compile(
     r"\s*\{[^}]+\}"                                             # {UK, Sterling} {EU} etc.
     r"|\s*[\[(]\s*\d*\s*(?:LP|EP|CD|7\"|12\")\s*[\])]"         # (LP) (2LP) [CD] etc.
@@ -43,9 +25,48 @@ def normalise_title(s: str) -> str:
 
 
 def clean_album(album: str) -> str:
-    """Strip edition/format noise so MB searches hit the canonical release title."""
-    album = _PRESSING.sub("", album)
-    return _NOISE.sub("", album).strip()
+    """Strip format/pressing annotations that never appear in MB titles."""
+    return _PRESSING.sub("", album).strip()
+
+
+def _strip_all_noise(album: str) -> str:
+    """Aggressively strip all parenthetical/bracketed content and disc position suffixes.
+
+    Handles cases clean_album misses:
+      'Tommy (1 of 2)'                       → 'Tommy'
+      'Tommy 2 of 2'                         → 'Tommy'
+      'Quadrophenia (1991 MFSL Gold) - Disc 1' → 'Quadrophenia'
+      'The Who Sell Out (1970 UK Reissue)'   → 'The Who Sell Out'
+      'Who's Next (Remastered)'              → "Who's Next"
+      '1999'                                 → '1999'  (no brackets — unchanged)
+    """
+    result = re.sub(r"\s*[\(\[\{][^\)\]\}]*[\)\]\}]", "", album)  # strip (), [], {}
+    result = re.sub(r"\s+\d+\s+of\s+\d+\s*$", "", result)          # strip bare "2 of 2"
+    result = re.sub(
+        r"\s*[-–]\s*(?:disc|disk|cd)\s*\d+.*$", "", result, flags=re.IGNORECASE
+    )  # strip "- Disc 1" suffixes
+    return result.strip("-– ").strip()
+
+
+def _album_search_variants(album: str) -> list[str]:
+    """Return de-duplicated album title variants to try, from conservative to aggressive.
+
+    Tier 1: strip format/pressing annotations only (e.g. {UK, Sterling}, (LP))
+    Tier 2: strip all bracketed content + disc suffixes (handles edition info, years, etc.)
+    Tier 3: first two words of tier-2 result (last resort for heavily decorated titles)
+    """
+    tier1 = clean_album(album)
+    tier2 = _strip_all_noise(album)
+    words = tier2.split()
+    tier3 = " ".join(words[:2]) if len(words) > 2 else ""
+
+    seen: set[str] = set()
+    variants: list[str] = []
+    for v in [tier1, tier2, tier3]:
+        if v and v not in seen:
+            seen.add(v)
+            variants.append(v)
+    return variants
 
 
 def track_title_score(local: list[str], mb: list[str]) -> float:
@@ -57,13 +78,8 @@ def track_title_score(local: list[str], mb: list[str]) -> float:
     return matched / len(mb)
 
 
-def find_best_release(probe: ProbeResult) -> str | None:
-    """Search MusicBrainz for the best matching release; return its UUID or None."""
-    if not probe.artist and not probe.album:
-        return None
-
-    artist = probe.artist.replace('"', "")
-    album = clean_album(probe.album).replace('"', "")
+def _attempt_search(artist: str, album: str, probe: ProbeResult) -> str | None:
+    """Run one MB search for (artist, album) and return the best UUID or None."""
     query = f'artist:"{artist}" AND release:"{album}"'
     candidates = search_releases(query)
 
@@ -95,3 +111,25 @@ def find_best_release(probe: ProbeResult) -> str | None:
             best_id = c["id"]
 
     return best_id if best_score >= MATCH_THRESHOLD else None
+
+
+def find_best_release(probe: ProbeResult) -> str | None:
+    """Search MusicBrainz for the best matching release; return its UUID or None.
+
+    Tries progressively more aggressive title cleaning until a match is found:
+      1. Strip format/pressing annotations only
+      2. Strip all bracketed content and disc suffixes
+      3. Search with just the first two words of the album title
+    """
+    if not probe.artist and not probe.album:
+        return None
+
+    artist = probe.artist.replace('"', "")
+
+    for album_variant in _album_search_variants(probe.album):
+        album = album_variant.replace('"', "")
+        result = _attempt_search(artist, album, probe)
+        if result is not None:
+            return result
+
+    return None

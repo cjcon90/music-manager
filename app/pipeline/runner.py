@@ -17,7 +17,7 @@ from app.pipeline.detector import (
     looks_like_multi_disc_cue_rip,
     looks_like_multi_disc_regular,
 )
-from app.pipeline.importer import ImportResult, run_beet_import
+from app.pipeline.importer import ImportResult, run_beet_command, run_beet_import
 from app.pipeline.matcher import find_best_release
 from app.pipeline.probe import ProbeResult, probe_cue, probe_cue_file, probe_flac, probe_multi_file_cue
 from app.pipeline.splitter import split_cue_rip
@@ -64,6 +64,21 @@ def _resolve_mb_id(ctx: ImportContext, probe: ProbeResult) -> str | None:
     return ctx.mb_id_override if ctx.mb_id_override else find_best_release(probe)
 
 
+def _beets_remove_path(path: Path) -> None:
+    """Remove all beets DB entries for files under path, without deleting the files.
+
+    Called before re-importing library files during a rematch so that beet does
+    not treat the existing entries as duplicates and skip them (duplicate_action:
+    skip in config.yaml). The files themselves stay on disk; beet re-creates the
+    DB entries from scratch with the new MB metadata.
+    """
+    result = run_beet_command(["beet", "remove", "-f", f"path:{path}"], timeout=30)
+    if result.returncode != 0:
+        log.warning("beet remove pre-step failed for %s: %s", path, result.stderr or result.stdout)
+    else:
+        log.debug("beet remove pre-step: cleared DB entries for %s", path)
+
+
 def run(
     path: str,
     noincremental: bool = True,
@@ -78,6 +93,12 @@ def run(
     """
     _log_processing(path)
     root = Path(path)
+
+    # Rematch (move=True): files are already in the library. Remove their DB
+    # entries first so beet does not see them as duplicates and skip.
+    if move:
+        _beets_remove_path(root)
+
     ctx = ImportContext(
         source_path=path,
         noincremental=noincremental,
@@ -198,6 +219,24 @@ def _process_multi_file_cue(job: MultiFileCueJob, ctx: ImportContext) -> None:
 
 def _process_regular(job: RegularJob, ctx: ImportContext) -> None:
     probe = probe_flac(job.path)
+
+    # If FLAC tags are entirely absent, fall back to any companion CUE for artist/album/year.
+    # Keeps the FLAC-derived track count and filename-based track titles so MB matching still
+    # works — the CUE just provides the identity metadata the empty tags can't supply.
+    if not probe.artist and not probe.album:
+        cue_probe = probe_cue(job.path)
+        if cue_probe.artist or cue_probe.album:
+            log.debug(
+                "No FLAC tags in %s — using CUE metadata (artist=%r, album=%r)",
+                job.path, cue_probe.artist, cue_probe.album,
+            )
+            probe = ProbeResult(
+                artist=cue_probe.artist,
+                album=cue_probe.album,
+                track_count=probe.track_count,
+                track_titles=probe.track_titles,
+            )
+
     mb_id = _resolve_mb_id(ctx, probe)
     result = run_beet_import(str(job.path), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
     _handle_result(result, ctx.source_path, str(job.path))
