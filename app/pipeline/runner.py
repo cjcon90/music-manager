@@ -5,7 +5,18 @@ from pathlib import Path
 
 from app import config, staging
 from app.pipeline import AUDIO_EXTS, DISC_PATTERN
-from app.pipeline.detector import CueRipJob, MultiCueRipJob, MultiDiscJob, MultiFileCueJob, RegularJob, _RELAXED_DISC_PATTERN, disc_is_image_cue, find_import_jobs, looks_like_multi_disc_cue_rip, looks_like_multi_disc_regular
+from app.pipeline.detector import (
+    CueRipJob,
+    MultiCueRipJob,
+    MultiDiscJob,
+    MultiFileCueJob,
+    RegularJob,
+    _RELAXED_DISC_PATTERN,
+    disc_is_image_cue,
+    find_import_jobs,
+    looks_like_multi_disc_cue_rip,
+    looks_like_multi_disc_regular,
+)
 from app.pipeline.importer import ImportResult, run_beet_import
 from app.pipeline.matcher import find_best_release
 from app.pipeline.probe import ProbeResult, probe_cue, probe_cue_file, probe_flac, probe_multi_file_cue
