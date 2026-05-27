@@ -66,7 +66,7 @@ def run(
     if not jobs:
         log.warning("No importable albums found in %s", path)
         _log_beet_output("Skipped (no audio found)\n")
-        log_failed(path, "skipped")
+        _log_failed(path, "skipped")
         return
 
     for job in jobs:
@@ -399,14 +399,9 @@ def _process_multi_disc_cue_override(
         return
 
     stage_root = staging.create_stage(ctx.source_path)
-    all_titles: list[str] = []
-    first_probe: ProbeResult | None = None
 
     for i, disc_dir in enumerate(disc_dirs, 1):
         disc_probe = probe_cue(disc_dir)
-        if first_probe is None:
-            first_probe = disc_probe
-        all_titles.extend(disc_probe.track_titles)
         stage_disc = stage_root / f"CD {i:02d}"
         if not (stage_disc.exists() and list(stage_disc.glob("*.flac"))):
             try:
@@ -417,15 +412,7 @@ def _process_multi_disc_cue_override(
                 staging.delete_stage(ctx.source_path)
                 return
 
-    combined = ProbeResult(
-        artist=first_probe.artist if first_probe else "",
-        album=first_probe.album if first_probe else "",
-        year=first_probe.year if first_probe else "",
-        track_count=len(all_titles),
-        track_titles=all_titles,
-    )
-    mb_id = ctx.mb_id_override if ctx.mb_id_override else find_best_release(combined)
-    result = run_beet_import(str(stage_root), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
+    result = run_beet_import(str(stage_root), mb_id=ctx.mb_id_override, noincremental=ctx.noincremental, move=ctx.move)
     _handle_result(result, ctx.source_path, ctx.source_path)
 
 
