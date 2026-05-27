@@ -25,7 +25,7 @@ def test_remove_album_not_found(mock_album, client):
 
 
 @patch("app.routes.remove.get_album_by_id", return_value=MOCK_ALBUM)
-@patch("app.routes.remove.subprocess.run")
+@patch("app.routes.remove.run_beet_command")
 def test_remove_post_calls_beet_remove(mock_run, mock_album, client):
     mock_run.return_value.returncode = 0
     resp = client.post("/remove/1")

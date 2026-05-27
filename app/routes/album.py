@@ -1,12 +1,10 @@
 import mimetypes
-import os
-import subprocess
 from pathlib import Path
 
 from flask import Blueprint, Response, jsonify, make_response, redirect, request, send_file, url_for
 
-from app import config
 from app.beets_api import get_album_by_id, get_album_tracks
+from app.pipeline.importer import run_beet_command
 from app.queue_writer import write_queue_job
 from mutagen.flac import FLAC
 
@@ -58,13 +56,7 @@ def fix_art(album_id: int) -> Response:
         except Exception as e:
             return jsonify({"ok": False, "error": f"Strip failed for {flac_path.name}: {e}"}), 500
 
-    result = subprocess.run(
-        ["beet", "fetchart", "-f", f"id:{album_id}"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        env={**os.environ, "BEETSDIR": config.BEETSDIR},
-    )
+    result = run_beet_command(["beet", "fetchart", "-f", f"id:{album_id}"])
     if result.returncode != 0:
         return jsonify({"ok": False, "error": result.stderr or result.stdout or "beet fetchart failed"}), 500
 

@@ -1,10 +1,7 @@
-import os
-import subprocess
-
 from flask import Blueprint, abort, redirect, render_template, url_for
 
-from app import config
 from app.beets_api import get_album_by_id
+from app.pipeline.importer import run_beet_command
 
 bp = Blueprint("remove", __name__)
 
@@ -22,13 +19,10 @@ def execute(album_id: int):
     album = get_album_by_id(album_id)
     if album is None:
         abort(404)
-    result = subprocess.run(
+    result = run_beet_command(
         ["beet", "remove", "-d", f"album_id:{album_id}"],
         input="yes\n",
-        capture_output=True,
-        text=True,
         timeout=30,
-        env={**os.environ, "BEETSDIR": config.BEETSDIR},
     )
     if result.returncode != 0:
         abort(500)

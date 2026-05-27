@@ -97,7 +97,7 @@ def run(
     if not jobs:
         log.warning("No importable albums found in %s", path)
         _log_beet_output("Skipped (no audio found)\n")
-        _log_failed(path, "skipped")
+        log_failed(path, "skipped")
         return
 
     for job in jobs:
@@ -255,7 +255,7 @@ def _handle_result(result: ImportResult, source_path: str, album_path: str) -> N
         staging.delete_stage(album_path)
     elif result.status in ("nomatch", "timeout"):
         kind = "nomatch" if result.status == "nomatch" else "skipped"
-        _log_failed(album_path, kind)
+        log_failed(album_path, kind)
 
 
 def _log_processing(path: str) -> None:
@@ -271,10 +271,6 @@ def _log_beet_output(output: str) -> None:
 def log_failed(path: str, kind: str) -> None:
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     _append(config.IMPORT_FAILED_LOG, f"{ts} | {kind} | {path}\n")
-
-
-def _log_failed(path: str, kind: str) -> None:
-    log_failed(path, kind)
 
 
 def _process_multi_disc_regular_override(

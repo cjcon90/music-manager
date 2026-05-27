@@ -55,7 +55,7 @@ def test_art_has_no_cache_header(mock_get, client, tmp_path):
     assert "no-cache" in resp.headers.get("Cache-Control", "")
 
 
-@patch("app.routes.album.subprocess.run")
+@patch("app.routes.album.run_beet_command")
 @patch("app.routes.album.FLAC")
 @patch("app.routes.album.get_album_tracks")
 def test_fix_art_success(mock_tracks, mock_flac_cls, mock_run, client, tmp_path):
@@ -87,7 +87,7 @@ def test_fix_art_returns_404_when_no_tracks(mock_tracks, client):
     assert resp.get_json()["ok"] is False
 
 
-@patch("app.routes.album.subprocess.run")
+@patch("app.routes.album.run_beet_command")
 @patch("app.routes.album.FLAC")
 @patch("app.routes.album.get_album_tracks")
 def test_fix_art_returns_error_when_beet_fails(mock_tracks, mock_flac_cls, mock_run, client, tmp_path):
@@ -111,7 +111,7 @@ def test_fix_art_returns_error_when_beet_fails(mock_tracks, mock_flac_cls, mock_
     assert "no art found" in data["error"]
 
 
-@patch("app.routes.album.subprocess.run")
+@patch("app.routes.album.run_beet_command")
 @patch("app.routes.album.FLAC")
 @patch("app.routes.album.get_album_tracks")
 def test_fix_art_skips_clear_when_no_pictures(mock_tracks, mock_flac_cls, mock_run, client, tmp_path):

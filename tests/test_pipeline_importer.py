@@ -83,3 +83,24 @@ def test_output_combines_stdout_stderr(mock_run):
     result = run_beet_import("/stage/album", mb_id=None)
     assert "stdout line" in result.output
     assert "stderr line" in result.output
+
+
+from app.pipeline.importer import run_beet_command
+
+
+@patch("app.pipeline.importer.subprocess.run")
+def test_run_beet_command_sets_beetsdir(mock_run):
+    """run_beet_command must set BEETSDIR in the subprocess environment."""
+    mock_run.return_value = MagicMock(returncode=0)
+    run_beet_command(["beet", "fetchart"])
+    call_kwargs = mock_run.call_args.kwargs
+    assert "BEETSDIR" in call_kwargs["env"]
+
+
+@patch("app.pipeline.importer.subprocess.run")
+def test_run_beet_command_accepts_input(mock_run):
+    """run_beet_command must pass the input kwarg to subprocess."""
+    mock_run.return_value = MagicMock(returncode=0)
+    run_beet_command(["beet", "remove", "-d", "id:1"], input="yes\n")
+    call_kwargs = mock_run.call_args.kwargs
+    assert call_kwargs.get("input") == "yes\n"

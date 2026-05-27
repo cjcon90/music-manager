@@ -12,6 +12,29 @@ log = logging.getLogger(__name__)
 _beet_lock = threading.Lock()
 
 
+def run_beet_command(
+    cmd: list[str],
+    *,
+    timeout: int = 60,
+    input: str | None = None,
+) -> subprocess.CompletedProcess:
+    """Run an arbitrary beet subcommand under the serialisation lock.
+
+    Use this for any beet call outside the main import path (e.g. fetchart,
+    remove) so all beet processes share the same SQLite-write lock and avoid
+    database corruption from concurrent writes.
+    """
+    with _beet_lock:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            input=input,
+            env={**os.environ, "BEETSDIR": BEETSDIR},
+        )
+
+
 @dataclass
 class ImportResult:
     status: str  # "imported" | "nomatch" | "duplicate" | "timeout"
