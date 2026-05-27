@@ -172,3 +172,41 @@ def test_true_multi_file_cue_detected(tmp_path):
     jobs = find_import_jobs(album)
     assert len(jobs) == 1
     assert isinstance(jobs[0], MultiFileCueJob)
+
+
+def test_eac_pregap_companion_cuesheet_detected_as_regular(tmp_path):
+    """EAC "append-pregap" companion CUE must be RegularJob, not MultiFileCueJob.
+
+    EAC sometimes stores the pregap of TRACK N at the end of FILE N-1, giving
+    FILE N-1's section two TRACK entries.  TRACK N has only INDEX 00 in FILE N-1
+    and its INDEX 01 is in FILE N.  This looks like two tracks per FILE section
+    but each audio file still holds exactly one complete track — it should be
+    imported as a regular pre-split album.
+
+    Reproduces the Imogen Heap - Ellipse pattern.
+    """
+    album = tmp_path / "album"
+    album.mkdir()
+    for i in range(1, 4):
+        (album / f"{i:02d} - Track {i}.flac").touch()
+    cue = album / "album.cue"
+    # FILE 1: track 1 complete + track 2 pregap (INDEX 00 only)
+    # FILE 2: track 2 INDEX 01 at start + track 3 pregap
+    # FILE 3: track 3 INDEX 01 at start (implicit — no TRACK keyword)
+    cue.write_text(
+        'REM COMMENT "ExactAudioCopy v0.99pb5"\n'
+        'FILE "01 - Track 1.wav" WAVE\n'
+        "  TRACK 01 AUDIO\n"
+        "    INDEX 01 00:00:00\n"
+        "  TRACK 02 AUDIO\n"
+        "    INDEX 00 03:45:00\n"
+        'FILE "02 - Track 2.wav" WAVE\n'
+        "    INDEX 01 00:00:00\n"
+        "  TRACK 03 AUDIO\n"
+        "    INDEX 00 04:12:00\n"
+        'FILE "03 - Track 3.wav" WAVE\n'
+        "    INDEX 01 00:00:00\n"
+    )
+    jobs = find_import_jobs(album)
+    assert len(jobs) == 1, f"expected 1 job, got {jobs}"
+    assert isinstance(jobs[0], RegularJob), f"expected RegularJob, got {type(jobs[0]).__name__}"

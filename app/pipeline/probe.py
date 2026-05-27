@@ -111,27 +111,42 @@ def count_cue_files(cue_path: Path) -> int:
 
 
 def cue_has_multiple_tracks_per_file(cue_path: Path) -> bool:
-    """Return True if at least one FILE section in the CUE contains multiple TRACK entries.
+    """Return True if at least one FILE section contains multiple complete TRACK entries.
 
-    Distinguishes true multi-file CUE rips (source files with multiple tracks that need
-    splitting) from EAC companion cuesheets (one FILE per already-split track).
-    Companion cuesheets always have exactly one TRACK per FILE section and should be
-    treated as a regular album directory, not split.
+    A complete track is one that has INDEX 01 within the same FILE section.
+    This correctly excludes EAC "append-pregap" entries where TRACK N appears in FILE N-1
+    with only INDEX 00 (pregap marker) — its INDEX 01 is in the next FILE, so it is not
+    a complete track within that section.
+
+    Distinguishes true multi-file CUE rips (each source file spanning several complete
+    tracks) from companion cuesheets — including the EAC variant where pregap audio is
+    appended to the preceding file, giving some FILE sections two TRACK entries even
+    though each track is already split into its own file.
     """
     try:
         content = _read_cue(cue_path)
     except OSError:
         return False
-    tracks_in_section = 0
+    complete_in_section = 0
+    cur_track_has_index01 = False
     for line in content.splitlines():
         s = line.strip()
         if re.match(r'FILE\s+"', s, re.IGNORECASE):
-            if tracks_in_section > 1:
+            if cur_track_has_index01:
+                complete_in_section += 1
+            if complete_in_section > 1:
                 return True
-            tracks_in_section = 0
+            complete_in_section = 0
+            cur_track_has_index01 = False
         elif re.match(r"TRACK\s+\d+\s+AUDIO", s, re.IGNORECASE):
-            tracks_in_section += 1
-    return tracks_in_section > 1
+            if cur_track_has_index01:
+                complete_in_section += 1
+            cur_track_has_index01 = False
+        elif re.match(r"INDEX\s+01\b", s, re.IGNORECASE):
+            cur_track_has_index01 = True
+    if cur_track_has_index01:
+        complete_in_section += 1
+    return complete_in_section > 1
 
 
 def probe_multi_file_cue(dirpath: Path) -> list[ProbeResult]:
