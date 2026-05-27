@@ -5,8 +5,6 @@ import pytest
 
 from app.pipeline.detector import CueRipJob, MultiDiscJob, RegularJob, find_import_jobs
 
-AUDIO_EXTS = [".flac", ".mp3", ".ape", ".wv"]
-
 
 def _touch(path: Path, name: str) -> Path:
     p = path / name
