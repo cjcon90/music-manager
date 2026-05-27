@@ -8,7 +8,6 @@ from flask import Blueprint, Response, abort, jsonify, render_template, request,
 
 from app import staging as _staging
 from app.beets_api import get_album_by_id
-from app.importer import stream_import  # SSE stream — failed imports only
 from app.lock import acquire_lock, release_lock
 from app.musicbrainz import get_release_by_id, search_releases
 from app.pipeline.matcher import normalise_title as _normalise
@@ -245,36 +244,13 @@ def queue_apply():
     return jsonify({"ok": True})
 
 
-@bp.route("/manual-match/stream")
-def stream():
-    stage_path = request.args.get("stage_path", "")
-    mb_uuid = request.args.get("mb_uuid") or None
-    use_as_is = request.args.get("use_as_is") == "1"
-
-    if not acquire_lock(stage_path):
-        abort(409)
-
-    def generate():
-        try:
-            yield from stream_import(stage_path, mb_uuid=mb_uuid, use_as_is=use_as_is)
-        finally:
-            release_lock()
-
-    return Response(
-        stream_with_context(generate()),
-        content_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
 @bp.route("/manual-match/split-by-mb")
 def split_by_mb():
     """Split a CUE rip (single FLAC + .cue) into individual tracks using the CUE timings.
 
     stage_path is the original download directory containing the CUE + FLAC source files.
     mb_uuid is required (ensures the button is only invoked alongside a known MB candidate)
-    but is not used for splitting — CUE timings are used directly. The caller should
-    proceed to /manual-match/stream with the same mb_uuid after split completes.
+    but is not used for splitting — CUE timings are used directly.
     """
     stage_path = request.args.get("stage_path", "")
     mb_uuid = request.args.get("mb_uuid", "").strip()

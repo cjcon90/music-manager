@@ -41,21 +41,6 @@ def test_apply_by_id_shows_tracks(mock_get, client):
     assert b'Dig A Pony' in resp.data
 
 
-@patch('app.routes.manual_match.acquire_lock', return_value=False)
-def test_apply_blocked_when_locked(mock_acquire, client):
-    resp = client.get('/manual-match/stream?stage_path=/p&mb_uuid=x')
-    assert resp.status_code == 409
-
-
-@patch('app.routes.manual_match.acquire_lock', return_value=True)
-@patch('app.routes.manual_match.release_lock')
-@patch('app.routes.manual_match.stream_import', return_value=iter(['data: done\n\n', 'data: [DONE]\n\n']))
-def test_stream_endpoint_returns_sse(mock_import, mock_release, mock_acquire, client):
-    resp = client.get('/manual-match/stream?stage_path=/p&mb_uuid=uuid-1')
-    assert resp.status_code == 200
-    assert resp.content_type == 'text/event-stream'
-
-
 MOCK_RELEASE_DETAIL = {
     'id': 'uuid-1', 'title': 'Let It Be', 'artist': 'The Beatles', 'year': '2024',
     'country': 'GB', 'label': 'Apple Records', 'score': 97, 'track_count': 2,

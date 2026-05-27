@@ -42,14 +42,6 @@
       </form>
     </div>
 
-    {% if not from_library %}
-    <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:auto">
-      <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Fallback</div>
-      <button class="btn btn-secondary" style="width:100%" onclick='startImport({{ stage_path | tojson }}, null, true)'>Use as-is (no match)</button>
-      <div class="text-tertiary" style="font-size:10px;margin-top:4px;text-align:center">Imports without MusicBrainz tags</div>
-    </div>
-    {% endif %}
-
   </div>
 
   <!-- RIGHT: Candidates / Apply by ID result / SSE output -->
@@ -257,73 +249,6 @@ async function queueRematch(albumId, mbUuid) {
   status.textContent = 'Queued — check the library in a few seconds.';
   status.style.color = 'var(--green)';
   output.textContent = 'Rematch job added to the import queue.\nBeet will apply the selected MusicBrainz release in the background.\nThe library will update once complete.';
-}
-
-async function startImport(stagePath, mbUuid, useAsIs) {
-  const panel = document.getElementById('import-panel');
-  const output = document.getElementById('import-output');
-  const status = document.getElementById('import-status');
-  panel.style.display = 'block';
-  panel.scrollIntoView({behavior: 'smooth', block: 'start'});
-  output.textContent = '';
-  status.textContent = 'Starting import…';
-  status.style.color = '';
-
-  const url = new URL('/manual-match/stream', window.location.origin);
-  url.searchParams.set('stage_path', stagePath);
-  if (mbUuid) url.searchParams.set('mb_uuid', mbUuid);
-  if (useAsIs) url.searchParams.set('use_as_is', '1');
-
-  let hadWarning = false;
-  let resp;
-  try {
-    resp = await fetch(url.toString());
-  } catch (e) {
-    status.textContent = 'Connection failed.';
-    status.style.color = 'var(--red)';
-    return;
-  }
-
-  if (resp.status === 409) {
-    status.textContent = 'Another import is already running — wait a moment and try again.';
-    status.style.color = 'var(--amber)';
-    return;
-  }
-  if (!resp.ok) {
-    status.textContent = 'Server error ' + resp.status + ' — check logs.';
-    status.style.color = 'var(--red)';
-    return;
-  }
-
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-  while (true) {
-    const {done, value} = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, {stream: true});
-    const lines = buf.split('\n');
-    buf = lines.pop();
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const msg = line.slice(6);
-      output.textContent += msg + '\n';
-      output.scrollTop = output.scrollHeight;
-      if (msg.startsWith('[WARNING]')) { hadWarning = true; }
-      if (msg === '[DONE]') {
-        status.textContent = 'Import complete.';
-        status.style.color = 'var(--green)';
-        if (!hadWarning) {
-          const fd = new FormData();
-          fd.append('path', stagePath);
-          fetch('/failed/dismiss-by-path', {method: 'POST', body: fd}).catch(() => {});
-        }
-        return;
-      }
-      if (msg.startsWith('[ERROR]')) { status.textContent = msg; status.style.color = 'var(--red)'; return; }
-    }
-  }
-  status.textContent = 'Stream ended.';
 }
 
 async function startSplit(stagePath, mbUuid) {
