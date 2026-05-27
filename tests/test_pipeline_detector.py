@@ -101,3 +101,21 @@ def test_no_symlink_loop(tmp_path):
     # Must return without hanging; symlink not followed
     assert len(jobs) == 1
     assert isinstance(jobs[0], CueRipJob)
+
+
+def test_regular_job_detected_for_dsf_files(tmp_path):
+    """DSD albums (.dsf) must be classified as RegularJob, not skipped."""
+    (tmp_path / 'track01.dsf').touch()
+    (tmp_path / 'track02.dsf').touch()
+    jobs = find_import_jobs(tmp_path)
+    assert len(jobs) == 1
+    assert isinstance(jobs[0], RegularJob)
+
+
+def test_regular_job_detected_for_dff_files(tmp_path):
+    """DSD albums (.dff) must be classified as RegularJob, not skipped."""
+    (tmp_path / 'track01.dff').touch()
+    (tmp_path / 'track02.dff').touch()
+    jobs = find_import_jobs(tmp_path)
+    assert len(jobs) == 1
+    assert isinstance(jobs[0], RegularJob)
