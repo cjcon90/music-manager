@@ -110,6 +110,30 @@ def count_cue_files(cue_path: Path) -> int:
         return 0
 
 
+def cue_has_multiple_tracks_per_file(cue_path: Path) -> bool:
+    """Return True if at least one FILE section in the CUE contains multiple TRACK entries.
+
+    Distinguishes true multi-file CUE rips (source files with multiple tracks that need
+    splitting) from EAC companion cuesheets (one FILE per already-split track).
+    Companion cuesheets always have exactly one TRACK per FILE section and should be
+    treated as a regular album directory, not split.
+    """
+    try:
+        content = _read_cue(cue_path)
+    except OSError:
+        return False
+    tracks_in_section = 0
+    for line in content.splitlines():
+        s = line.strip()
+        if re.match(r'FILE\s+"', s, re.IGNORECASE):
+            if tracks_in_section > 1:
+                return True
+            tracks_in_section = 0
+        elif re.match(r"TRACK\s+\d+\s+AUDIO", s, re.IGNORECASE):
+            tracks_in_section += 1
+    return tracks_in_section > 1
+
+
 def probe_multi_file_cue(dirpath: Path) -> list[ProbeResult]:
     """Parse a multi-file CUE sheet into one ProbeResult per FILE section.
 
@@ -181,11 +205,15 @@ def _parse_multi_file_cue(cue_path: Path, dirpath: Path) -> list[ProbeResult]:
                 if cur_section and cur_section["tracks"] and cur_section["tracks"][-1] is cur_track:
                     cur_section["tracks"].pop()
                 pending_track = cur_track
-            candidate = dirpath / m.group(1)
+            # Normalise Windows backslash paths — CUE files from Windows rippers
+            # use backslash as separator, which is a literal character on Linux.
+            # Take just the basename so "SubDir\file.wav" resolves to "file.wav".
+            raw_name = Path(m.group(1).replace("\\", "/")).name
+            candidate = dirpath / raw_name
             if not candidate.exists():
                 # EAC writes .wav in the CUE even when encoding to FLAC.
                 # Try every known audio extension with the same stem.
-                stem = Path(m.group(1)).stem
+                stem = Path(raw_name).stem
                 candidate = next(
                     (dirpath / f"{stem}{ext}" for ext in sorted(AUDIO_EXTS)
                      if (dirpath / f"{stem}{ext}").exists()),

@@ -117,3 +117,58 @@ def test_regular_job_detected_for_dff_files(tmp_path):
     jobs = find_import_jobs(tmp_path)
     assert len(jobs) == 1
     assert isinstance(jobs[0], RegularJob)
+
+def test_companion_cuesheet_detected_as_regular(tmp_path):
+    """Pre-split album with EAC companion cuesheet (1 track per FILE) must be RegularJob.
+
+    Reproduces the Captain Beyond / Basement Jaxx bug: count_cue_files == len(audio)
+    by coincidence, but these are already-split FLACs — not a multi-file rip needing splitting.
+    """
+    album = tmp_path / "album"
+    album.mkdir()
+    for i in range(1, 4):
+        (album / f"{i:02d} - Track {i}.flac").touch()
+    cue = album / "album.cue"
+    cue.write_text(
+        'REM COMMENT "EAC"\n'
+        'FILE "01 - Track 1.wav" WAVE\n'
+        "  TRACK 01 AUDIO\n"
+        "    INDEX 01 00:00:00\n"
+        'FILE "02 - Track 2.wav" WAVE\n'
+        "  TRACK 02 AUDIO\n"
+        "    INDEX 01 00:00:00\n"
+        'FILE "03 - Track 3.wav" WAVE\n'
+        "  TRACK 03 AUDIO\n"
+        "    INDEX 01 00:00:00\n"
+    )
+    jobs = find_import_jobs(album)
+    assert len(jobs) == 1
+    assert isinstance(jobs[0], RegularJob)
+
+
+def test_true_multi_file_cue_detected(tmp_path):
+    """True multi-file CUE rip (each FILE has multiple tracks) must be MultiFileCueJob."""
+    from app.pipeline.detector import MultiFileCueJob
+
+    album = tmp_path / "album"
+    album.mkdir()
+    (album / "side_a.flac").touch()
+    (album / "side_b.flac").touch()
+    cue = album / "album.cue"
+    cue.write_text(
+        'FILE "side_a.flac" WAVE\n'
+        "  TRACK 01 AUDIO\n"
+        "    INDEX 01 00:00:00\n"
+        "  TRACK 02 AUDIO\n"
+        "    INDEX 01 03:00:00\n"
+        "  TRACK 03 AUDIO\n"
+        "    INDEX 01 06:00:00\n"
+        'FILE "side_b.flac" WAVE\n'
+        "  TRACK 04 AUDIO\n"
+        "    INDEX 01 00:00:00\n"
+        "  TRACK 05 AUDIO\n"
+        "    INDEX 01 04:00:00\n"
+    )
+    jobs = find_import_jobs(album)
+    assert len(jobs) == 1
+    assert isinstance(jobs[0], MultiFileCueJob)

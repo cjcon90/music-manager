@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.pipeline import AUDIO_EXTS, DISC_PATTERN
-from app.pipeline.probe import count_cue_files
+from app.pipeline.probe import count_cue_files, cue_has_multiple_tracks_per_file
 
 MAX_WALK_DEPTH = 10
 
@@ -86,17 +86,22 @@ def _is_multi_cue_rip(filenames: list[str]) -> bool:
 
 
 def _is_multi_file_cue(filenames: list[str], dirpath: Path) -> bool:
-    """Single CUE referencing N audio files — e.g. a 3LP rip with one master CUE for all sides.
+    """Single CUE referencing N multi-track audio files — e.g. a 3LP rip with one master CUE.
 
     Distinct from MultiCueRipJob (N CUEs, one per audio file): here a single CUE sheet
-    contains N FILE entries, each pointing to one of the audio files in the directory.
-    We peek inside the CUE to count FILE entries rather than inferring from filename counts.
+    contains N FILE entries each covering multiple tracks.  We require that at least one
+    FILE section has >1 TRACK to rule out EAC companion cuesheets, which have one FILE
+    entry per already-split track and must be treated as a regular album directory.
     """
     audio = _audio_files(filenames)
     cue = [f for f in filenames if f.lower().endswith(".cue") and "isrc" not in f.lower()]
     if len(audio) < 2 or len(cue) != 1:
         return False
-    return count_cue_files(dirpath / cue[0]) == len(audio)
+    cue_path = dirpath / cue[0]
+    return (
+        count_cue_files(cue_path) == len(audio)
+        and cue_has_multiple_tracks_per_file(cue_path)
+    )
 
 
 def _is_regular(filenames: list[str]) -> bool:
