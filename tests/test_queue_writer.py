@@ -71,3 +71,22 @@ def test_two_calls_produce_unique_filenames(tmp_path):
     a = write_queue_job("/path/a")
     b = write_queue_job("/path/b")
     assert a != b
+
+
+def test_raises_on_newline_in_path(tmp_path):
+    with pytest.raises(ValueError, match="newlines"):
+        write_queue_job("/music/album\n--injected")
+
+
+def test_raises_on_invalid_search_id(tmp_path):
+    with pytest.raises(ValueError, match="UUID"):
+        write_queue_job("/music/album", search_id="not-a-uuid")
+
+
+def test_accepts_valid_search_id(tmp_path):
+    # compact UUID format
+    pf = write_queue_job("/music/album", search_id="a1b2c3d4e5f647a8b9c0d1e2f3a4b5c6")
+    assert "--search-id=a1b2c3d4e5f647a8b9c0d1e2f3a4b5c6" in pf.read_text()
+    # hyphenated UUID format
+    pf2 = write_queue_job("/music/album2", search_id="a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6")
+    assert "--search-id=a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6" in pf2.read_text()

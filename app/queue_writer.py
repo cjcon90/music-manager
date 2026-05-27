@@ -31,6 +31,13 @@ def write_queue_job(
     """
     queue_dir = Path(config.IMPORT_QUEUE_DIR)
     queue_dir.mkdir(parents=True, exist_ok=True, mode=0o777)
+    queue_dir.chmod(0o777)  # override umask so qBittorrent (CT 104) can write
+
+    # Validate inputs to prevent injection attacks
+    if "\n" in path:
+        raise ValueError(f"path must not contain newlines: {path!r}")
+    if search_id is not None and not re.fullmatch(r"[0-9a-f-]{32,36}", search_id):
+        raise ValueError(f"search_id must be a UUID: {search_id!r}")
 
     slug = re.sub(r"[^\w-]", "_", Path(path).name)[:40]
     tag = hashlib.sha256(f"{prefix}-{path}-{time.time()}".encode()).hexdigest()[:8]
