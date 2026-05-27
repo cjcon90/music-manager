@@ -33,6 +33,31 @@ class ImportContext:
     move: bool
 
 
+def _merge_probes(first: ProbeResult | None, all_titles: list[str]) -> ProbeResult:
+    """Combine per-disc ProbeResults into one for MB matching.
+
+    Used by multi-disc and multi-CUE handlers where each disc is probed
+    separately but a single combined track list is needed for the matcher.
+    first may be None if no discs were found; in that case metadata is empty.
+    """
+    return ProbeResult(
+        artist=first.artist if first else "",
+        album=first.album if first else "",
+        year=first.year if first else "",
+        track_count=len(all_titles),
+        track_titles=all_titles,
+    )
+
+
+def _resolve_mb_id(ctx: ImportContext, probe: ProbeResult) -> str | None:
+    """Return the MB release ID to use for this import.
+
+    Uses ctx.mb_id_override when set (user-chosen release, skips matcher).
+    Falls back to searching MusicBrainz using probe metadata.
+    """
+    return ctx.mb_id_override if ctx.mb_id_override else find_best_release(probe)
+
+
 def run(
     path: str,
     noincremental: bool = True,
@@ -95,7 +120,7 @@ def _process_cue_rip(job: CueRipJob, ctx: ImportContext) -> None:
             staging.delete_stage(str(job.path))
             return
 
-    mb_id = ctx.mb_id_override if ctx.mb_id_override else find_best_release(probe)
+    mb_id = _resolve_mb_id(ctx, probe)
     result = run_beet_import(str(stage_dir), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
     _handle_result(result, ctx.source_path, str(job.path))
 
@@ -128,14 +153,8 @@ def _process_multi_cue_rip(job: MultiCueRipJob, ctx: ImportContext) -> None:
                 staging.delete_stage(str(job.path))
                 return
 
-    combined = ProbeResult(
-        artist=first_probe.artist if first_probe else "",
-        album=first_probe.album if first_probe else "",
-        year=first_probe.year if first_probe else "",
-        track_count=len(all_titles),
-        track_titles=all_titles,
-    )
-    mb_id = ctx.mb_id_override if ctx.mb_id_override else find_best_release(combined)
+    combined = _merge_probes(first_probe, all_titles)
+    mb_id = _resolve_mb_id(ctx, combined)
     result = run_beet_import(str(stage_root), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
     _handle_result(result, ctx.source_path, str(job.path))
 
@@ -165,21 +184,15 @@ def _process_multi_file_cue(job: MultiFileCueJob, ctx: ImportContext) -> None:
             return
         all_titles.extend(section.track_titles)
 
-    combined = ProbeResult(
-        artist=first.artist,
-        album=first.album,
-        year=first.year,
-        track_count=len(all_titles),
-        track_titles=all_titles,
-    )
-    mb_id = ctx.mb_id_override if ctx.mb_id_override else find_best_release(combined)
+    combined = _merge_probes(first, all_titles)
+    mb_id = _resolve_mb_id(ctx, combined)
     result = run_beet_import(str(stage_dir), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
     _handle_result(result, ctx.source_path, str(job.path))
 
 
 def _process_regular(job: RegularJob, ctx: ImportContext) -> None:
     probe = probe_flac(job.path)
-    mb_id = ctx.mb_id_override if ctx.mb_id_override else find_best_release(probe)
+    mb_id = _resolve_mb_id(ctx, probe)
     result = run_beet_import(str(job.path), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
     _handle_result(result, ctx.source_path, str(job.path))
 
@@ -210,14 +223,8 @@ def _process_multi_disc(job: MultiDiscJob, ctx: ImportContext) -> None:
             if first_probe is None:
                 first_probe = p
             all_titles.extend(p.track_titles)
-        combined = ProbeResult(
-            artist=first_probe.artist if first_probe else "",
-            album=first_probe.album if first_probe else "",
-            year=first_probe.year if first_probe else "",
-            track_count=len(all_titles),
-            track_titles=all_titles,
-        )
-        mb_id = ctx.mb_id_override if ctx.mb_id_override else find_best_release(combined)
+        combined = _merge_probes(first_probe, all_titles)
+        mb_id = _resolve_mb_id(ctx, combined)
         result = run_beet_import(str(job.path), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
         _handle_result(result, ctx.source_path, str(job.path))
         return
@@ -241,14 +248,8 @@ def _process_multi_disc(job: MultiDiscJob, ctx: ImportContext) -> None:
                 staging.delete_stage(str(job.path))
                 return
 
-    combined = ProbeResult(
-        artist=first_probe.artist if first_probe else "",
-        album=first_probe.album if first_probe else "",
-        year=first_probe.year if first_probe else "",
-        track_count=len(all_titles),
-        track_titles=all_titles,
-    )
-    mb_id = ctx.mb_id_override if ctx.mb_id_override else find_best_release(combined)
+    combined = _merge_probes(first_probe, all_titles)
+    mb_id = _resolve_mb_id(ctx, combined)
     result = run_beet_import(str(stage_root), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
     _handle_result(result, ctx.source_path, str(job.path))
 

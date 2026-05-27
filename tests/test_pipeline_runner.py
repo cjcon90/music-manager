@@ -151,3 +151,44 @@ def test_run_writes_processing_line(tmp_path):
     log = (tmp_path / "on-complete.log").read_text()
     assert "import-watcher: processing" in log
     assert str(d) in log
+
+
+from app.pipeline.runner import ImportContext, _merge_probes, _resolve_mb_id
+from app.pipeline.probe import ProbeResult
+
+
+def _ctx(mb_id_override=None):
+    return ImportContext(
+        source_path="/p", noincremental=True, mb_id_override=mb_id_override, move=False
+    )
+
+
+def test_merge_probes_combines_titles():
+    first = ProbeResult(artist="Art", album="Alb", year="2020", track_count=2, track_titles=["A", "B"])
+    result = _merge_probes(first, ["X", "Y", "Z"])
+    assert result.artist == "Art"
+    assert result.album == "Alb"
+    assert result.year == "2020"
+    assert result.track_count == 3
+    assert result.track_titles == ["X", "Y", "Z"]
+
+
+def test_merge_probes_handles_none_first():
+    result = _merge_probes(None, ["X", "Y"])
+    assert result.artist == ""
+    assert result.album == ""
+    assert result.track_count == 2
+
+
+def test_resolve_mb_id_returns_override_without_mb_lookup():
+    ctx = _ctx(mb_id_override="aaaaaaaa-0000-0000-0000-000000000000")
+    probe = ProbeResult(artist="A", album="B", year="2020", track_count=5, track_titles=[])
+    result = _resolve_mb_id(ctx, probe)
+    assert result == "aaaaaaaa-0000-0000-0000-000000000000"
+
+
+def test_resolve_mb_id_returns_none_when_no_override_and_probe_empty():
+    ctx = _ctx(mb_id_override=None)
+    probe = ProbeResult()
+    result = _resolve_mb_id(ctx, probe)
+    assert result is None
