@@ -41,6 +41,7 @@ class ProbeResult:
 
 
 def probe_cue(dirpath: Path) -> ProbeResult:
+    """Find and parse the CUE file in dirpath, preferring non-ISRC files."""
     cue_files = sorted(dirpath.glob("*.cue")) + sorted(dirpath.glob("*.CUE"))
     if not cue_files:
         return ProbeResult()
@@ -55,6 +56,7 @@ def probe_cue_file(dirpath: Path, cue_path: Path) -> ProbeResult:
 
 
 def probe_flac(dirpath: Path) -> ProbeResult:
+    """Read FLAC tags from all audio files in dirpath to build a ProbeResult."""
     files = sorted(f for f in dirpath.iterdir() if f.is_file() and f.suffix.lower() in AUDIO_EXTS)
     if not files:
         return ProbeResult()
@@ -127,6 +129,7 @@ def probe_multi_file_cue(dirpath: Path) -> list[ProbeResult]:
 
 
 def _parse_multi_file_cue(cue_path: Path, dirpath: Path) -> list[ProbeResult]:
+    """Parse a multi-file CUE into per-section ProbeResults with globally-correct track numbers."""
     content = _read_cue(cue_path)
 
     # --- first pass: global header fields (appear before any FILE block) ---
@@ -250,6 +253,7 @@ def _parse_multi_file_cue(cue_path: Path, dirpath: Path) -> list[ProbeResult]:
 
 
 def _parse_cue(cue_path: Path, dirpath: Path) -> ProbeResult:
+    """Full CUE parse: extracts artist, album, year, track titles, timings, disc number."""
     content = _read_cue(cue_path)
 
     global_performer = ""
@@ -344,6 +348,7 @@ def _parse_cue(cue_path: Path, dirpath: Path) -> ProbeResult:
 
 
 def _read_cue(cue_path: Path) -> str:
+    """Read a CUE file trying UTF-8, Windows-1251, and Latin-1 in order."""
     for encoding in ("utf-8", "windows-1251", "latin-1"):
         try:
             return cue_path.read_text(encoding=encoding)

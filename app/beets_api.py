@@ -9,6 +9,7 @@ from app.types import AlbumInfo, TrackInfo
 
 @contextmanager
 def _library() -> Generator[Library, None, None]:
+    """Context manager: open and close the beets Library for a single operation."""
     lib = Library(BEETS_DB_PATH)
     try:
         yield lib
@@ -17,6 +18,7 @@ def _library() -> Generator[Library, None, None]:
 
 
 def _album_to_info(a: Any) -> AlbumInfo:
+    """Convert a beets Album object to an AlbumInfo TypedDict."""
     items = list(a.items())
     first_item = items[0] if items else None
 

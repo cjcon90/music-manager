@@ -37,6 +37,8 @@ def run_beet_command(
 
 @dataclass
 class ImportResult:
+    """Return value from run_beet_import. status is one of: imported | nomatch | duplicate | timeout."""
+
     status: str  # "imported" | "nomatch" | "duplicate" | "timeout"
     output: str
 
@@ -47,6 +49,7 @@ def run_beet_import(
     noincremental: bool = True,
     move: bool = False,
 ) -> ImportResult:
+    """Run beet import under the serialisation lock; return a structured ImportResult."""
     cmd = ["beet", "import", "--quiet"]
     if noincremental:
         cmd.append("--noincremental")

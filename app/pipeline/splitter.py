@@ -6,6 +6,7 @@ from app.pipeline.probe import ProbeResult, probe_cue
 
 
 def split_cue_rip(source_dir: Path, stage_dir: Path, probe: ProbeResult | None = None) -> None:
+    """Split a single audio file into individual tracks using CUE timings, writing to stage_dir."""
     if probe is None:
         probe = probe_cue(source_dir)
 
@@ -39,6 +40,7 @@ def _split_flac(
     src: Path, out: Path, start: float, end: float | None,
     num: int, probe: ProbeResult, title: str,
 ) -> None:
+    """Split a FLAC source using the native flac CLI for lossless re-encoding."""
     cmd = ["flac", "--silent", "--force"]
     if start:
         cmd.append(f"--skip={_t(start)}")
@@ -66,6 +68,7 @@ def _split_ffmpeg(
     src: Path, out: Path, start: float, end: float | None,
     num: int, probe: ProbeResult, title: str,
 ) -> None:
+    """Split a non-FLAC source (e.g. WAV, APE) via ffmpeg, encoding output as FLAC."""
     cmd = ["ffmpeg", "-ss", f"{start:.6f}", "-i", str(src)]
     if end is not None:
         cmd += ["-to", f"{end - start:.6f}"]

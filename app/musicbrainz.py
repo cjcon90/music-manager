@@ -52,6 +52,7 @@ def _get(url: str, params: dict[str, Any] | None = None) -> requests.Response:
 
 
 def _parse_candidate(release: dict[str, Any]) -> MBCandidate:
+    """Extract an MBCandidate from a raw MusicBrainz release dict."""
     artist_credit: list[dict[str, Any]] = release.get("artist-credit", [])
     artist = artist_credit[0]["artist"]["name"] if artist_credit else ""
     label_info: list[dict[str, Any]] = release.get("label-info", [])
@@ -107,6 +108,7 @@ def _build_query(query: str, artist: str, title: str) -> str:
 
 
 def search_releases(query: str, *, artist: str = "", title: str = "") -> list[MBCandidate]:
+    """Search MB releases; returns up to 25 candidates sorted by relevance."""
     q = _build_query(query, artist, title)
     resp = _get(f"{MB_API}/release", params={"query": q, "fmt": "json", "limit": 25})
     releases: list[dict[str, Any]] = resp.json().get("releases", [])
@@ -114,6 +116,7 @@ def search_releases(query: str, *, artist: str = "", title: str = "") -> list[MB
 
 
 def get_release_by_id(mb_uuid: str) -> MBCandidateDetail:
+    """Fetch full release detail including track listing and label from MB."""
     resp = _get(
         f"{MB_API}/release/{mb_uuid}",
         params={"inc": "recordings+labels+artist-credits", "fmt": "json"},

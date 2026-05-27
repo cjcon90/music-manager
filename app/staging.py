@@ -11,6 +11,7 @@ def stage_path(source_path: str) -> Path:
 
 
 def create_stage(source_path: str) -> Path:
+    """Create the staging directory and write a .name hint file."""
     stage = stage_path(source_path)
     stage.mkdir(parents=True, exist_ok=True)
     (stage / ".name").write_text(Path(source_path).name, encoding="utf-8")
@@ -18,6 +19,7 @@ def create_stage(source_path: str) -> Path:
 
 
 def delete_stage(source_path: str) -> None:
+    """Remove the staging directory after a successful import."""
     stage = stage_path(source_path)
     if stage.exists():
         shutil.rmtree(stage)

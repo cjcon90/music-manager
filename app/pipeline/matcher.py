@@ -37,6 +37,7 @@ _PRESSING = re.compile(
 
 
 def normalise_title(s: str) -> str:
+    """Strip leading track numbers and non-word characters for fuzzy comparison."""
     s = re.sub(r"^\d+[\s._\-]+", "", s)
     return re.sub(r"[^\w]", "", s).lower()
 
@@ -48,6 +49,7 @@ def clean_album(album: str) -> str:
 
 
 def track_title_score(local: list[str], mb: list[str]) -> float:
+    """Fraction of MB track titles that fuzzily match at least one local track title."""
     if not mb:
         return 0.0
     local_norm = [normalise_title(t) for t in local]
@@ -56,6 +58,7 @@ def track_title_score(local: list[str], mb: list[str]) -> float:
 
 
 def find_best_release(probe: ProbeResult) -> str | None:
+    """Search MusicBrainz for the best matching release; return its UUID or None."""
     if not probe.artist and not probe.album:
         return None
 

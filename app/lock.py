@@ -39,6 +39,7 @@ def get_lock_info() -> dict[str, Any] | None:
 
 
 def cleanup_stale_lock() -> None:
+    """Remove the lock file if it's older than LOCK_MAX_AGE_SECONDS (crash recovery)."""
     info = get_lock_info()
     if info is None:
         return

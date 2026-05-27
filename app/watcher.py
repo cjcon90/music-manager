@@ -12,6 +12,7 @@ log = logging.getLogger(__name__)
 
 
 def start_watcher() -> None:
+    """Start the background import watcher thread (no-op if WATCHER_DISABLE is set)."""
     if os.environ.get("WATCHER_DISABLE"):
         return
     _recover_interrupted_import()
@@ -39,6 +40,7 @@ def _recover_interrupted_import() -> None:
 
 
 def _watcher_loop() -> None:
+    """Poll the queue directory every 5s and run runner.run() on each .path file."""
     queue_dir = Path(config.IMPORT_QUEUE_DIR)
     queue_dir.mkdir(parents=True, exist_ok=True, mode=0o777)
     # Ensure world-writable so qBittorrent's on-complete.sh (different container user) can write path files
@@ -74,6 +76,7 @@ def _watcher_loop() -> None:
 
 
 def _read_path_file(path_file: Path) -> tuple[str, list[str]]:
+    """Parse a .path file into (path, flags) tuple."""
     lines = path_file.read_text().splitlines()
     path = lines[0].strip() if lines else ""
     flags = [ln.strip() for ln in lines[1:] if ln.strip()]
