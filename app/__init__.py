@@ -25,6 +25,7 @@ def create_app() -> Flask:
     from app.routes.manual_match import bp as manual_match_bp
     from app.routes.queue import bp as queue_bp
     from app.routes.remove import bp as remove_bp
+    from app.routes.wishlist import bp as wishlist_bp
 
     app.register_blueprint(browse_bp)
     app.register_blueprint(album_bp)
@@ -33,6 +34,7 @@ def create_app() -> Flask:
     app.register_blueprint(queue_bp)
     app.register_blueprint(failed_bp)
     app.register_blueprint(manual_match_bp)
+    app.register_blueprint(wishlist_bp)
 
     @app.template_filter("datetimeformat")
     def datetimeformat(value: int) -> str:

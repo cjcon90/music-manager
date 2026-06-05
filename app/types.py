@@ -77,3 +77,11 @@ class MBCandidateDetail(TypedDict):
     tracks: list[TrackDetail]
     track_count: int
     disambiguation: str
+
+
+class WishlistEntry(TypedDict):
+    mb_id: str
+    title: str
+    artist: str
+    year: str
+    added_at: str  # ISO datetime string

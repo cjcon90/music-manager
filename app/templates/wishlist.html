@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Wishlist — music-manager{% endblock %}
+{% block content %}
+
+<div style="display:grid;grid-template-columns:280px 1fr;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;min-height:300px">
+
+  <!-- LEFT: Search -->
+  <div style="border-right:1px solid var(--border);padding:14px;display:flex;flex-direction:column;gap:14px;background:var(--bg-secondary)">
+    <form method="post" action="{{ url_for('wishlist.search') }}">
+      <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Artist <span style="font-weight:400">(optional)</span></div>
+      <input type="text" name="artist" value="{{ artist }}" placeholder="e.g. Etta James" style="width:100%;background:var(--bg-primary);border:1px solid var(--border-secondary);border-radius:4px;padding:7px 10px;color:var(--text-primary);font-size:12px;margin-bottom:8px">
+      <div class="text-tertiary" style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Album / Keywords</div>
+      <input type="text" name="query" value="{{ query }}" placeholder="e.g. At Last!" style="width:100%;background:var(--bg-primary);border:1px solid var(--border-secondary);border-radius:4px;padding:7px 10px;color:var(--text-primary);font-size:12px;margin-bottom:6px">
+      <button type="submit" class="btn btn-primary" style="width:100%">Search MusicBrainz</button>
+    </form>
+  </div>
+
+  <!-- RIGHT: Results -->
+  <div style="overflow-y:auto">
+    {% if candidates %}
+      <div style="padding:8px 14px;border-bottom:1px solid var(--border)">
+        <div class="text-secondary" style="font-size:11px">{{ candidates | length }} candidates found</div>
+      </div>
+      {% for c in candidates %}
+      <div style="padding:12px 14px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div>
+            <div style="font-size:12px;font-weight:600">{{ c.title }}</div>
+            <div class="text-secondary" style="font-size:11px">{{ c.artist }}</div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;margin-left:12px">
+            {% if c.id in added_ids %}
+            <span class="btn btn-secondary" style="padding:4px 10px;font-size:11px;opacity:0.5;cursor:default">✓ Added</span>
+            {% else %}
+            <form method="post" action="{{ url_for('wishlist.add') }}" style="margin:0">
+              <input type="hidden" name="mb_id" value="{{ c.id }}">
+              <input type="hidden" name="title" value="{{ c.title }}">
+              <input type="hidden" name="artist" value="{{ c.artist }}">
+              <input type="hidden" name="year" value="{{ c.year }}">
+              <button type="submit" class="btn btn-success" style="padding:4px 10px;font-size:11px">+ Add</button>
+            </form>
+            {% endif %}
+            <a href="https://musicbrainz.org/release/{{ c.id }}" target="_blank" class="btn btn-secondary" style="padding:4px 8px;font-size:10px">MB →</a>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <span style="background:var(--bg-tertiary);color:var(--text-secondary);padding:2px 8px;border-radius:3px;font-size:10px">{{ c.year or '—' }}</span>
+          {% if c.country %}<span style="background:var(--bg-tertiary);color:var(--text-secondary);padding:2px 8px;border-radius:3px;font-size:10px">{{ c.country }}</span>{% endif %}
+          {% if c.label %}<span style="background:var(--bg-tertiary);color:var(--text-secondary);padding:2px 8px;border-radius:3px;font-size:10px">{{ c.label }}</span>{% endif %}
+          <span style="background:var(--bg-tertiary);color:var(--text-secondary);padding:2px 8px;border-radius:3px;font-size:10px">{{ c.track_count }} tracks</span>
+          {% if c.disambiguation %}<span style="background:var(--bg-tertiary);color:var(--text-secondary);padding:2px 8px;border-radius:3px;font-size:10px;font-style:italic">{{ c.disambiguation }}</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    {% elif searched %}
+      <div class="text-tertiary" style="text-align:center;padding:40px">No results found. Try different search terms.</div>
+    {% else %}
+      <div class="text-tertiary" style="text-align:center;padding:40px">Search MusicBrainz to find albums to add.</div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Wishlist entries -->
+<div style="margin-top:24px">
+  <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">
+    Your wishlist ({{ entries | length }})
+  </div>
+  {% if entries %}
+  <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden">
+    {% for entry in entries %}
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;{% if not loop.last %}border-bottom:1px solid var(--border);{% endif %}">
+      <div style="flex:1">
+        <span style="font-size:13px;font-weight:500">{{ entry.artist }}</span>
+        <span class="text-tertiary" style="margin:0 5px">—</span>
+        <span style="font-size:13px">{{ entry.title }}</span>
+        {% if entry.year %}
+        <span class="text-tertiary" style="font-size:11px;margin-left:6px">({{ entry.year }})</span>
+        {% endif %}
+      </div>
+      <a href="https://musicbrainz.org/release/{{ entry.mb_id }}" target="_blank" class="btn btn-secondary" style="padding:3px 8px;font-size:10px">MB →</a>
+      <form method="post" action="{{ url_for('wishlist.remove') }}" style="margin:0">
+        <input type="hidden" name="mb_id" value="{{ entry.mb_id }}">
+        <button type="submit" class="btn btn-secondary" style="padding:3px 10px;font-size:11px;opacity:0.4">remove</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="text-tertiary" style="text-align:center;padding:32px;border:1px solid var(--border);border-radius:6px">No albums on your wishlist yet.</div>
+  {% endif %}
+</div>
+
+{% endblock %}

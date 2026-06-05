@@ -10,6 +10,7 @@ IMPORT_FAILED_DISMISSED_LOG = os.path.join(SCRIPTS_DIR, "import-failed-dismissed
 ON_COMPLETE_LOG = os.path.join(SCRIPTS_DIR, "on-complete.log")
 LOCK_FILE = os.path.join(SCRIPTS_DIR, "manual-match.lock")
 IMPORT_ACTIVE_FILE = os.path.join(SCRIPTS_DIR, "import-active")
+WISHLIST_FILE = os.path.join(SCRIPTS_DIR, "wishlist.json")
 
 MB_CONTACT = os.environ.get("MB_CONTACT", "music-manager@localhost")
 MB_USER_AGENT = f"music-manager/1.0 ( {MB_CONTACT} )"
