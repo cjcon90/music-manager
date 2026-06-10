@@ -12,6 +12,22 @@ from pathlib import Path
 from app import config
 
 
+def _validate_path_allowed(path: str) -> None:
+    """Reject paths outside the import roots.
+
+    Routes pass user-supplied paths straight to the queue; this is the central
+    chokepoint, so the allowed-roots check lives here rather than per-route.
+    Roots are read at call time so tests can monkeypatch config.
+    """
+    allowed = (config.IMPORT_BASE_DIR, config.IMPORT_STAGE_DIR, config.MUSIC_LIBRARY_DIR)
+    p = Path(path).resolve()
+    for root in allowed:
+        root_p = Path(root).resolve()
+        if p == root_p or p.is_relative_to(root_p):
+            return
+    raise ValueError(f"path outside allowed roots: {path!r}")
+
+
 def write_queue_job(
     path: str,
     *,
@@ -38,6 +54,7 @@ def write_queue_job(
         raise ValueError(f"path must not contain newlines: {path!r}")
     if search_id is not None and not re.fullmatch(r"[0-9a-f-]{32,36}", search_id):
         raise ValueError(f"search_id must be a UUID: {search_id!r}")
+    _validate_path_allowed(path)
 
     slug = re.sub(r"[^\w-]", "_", Path(path).name)[:40]
     tag = hashlib.sha256(f"{prefix}-{path}-{time.time()}".encode()).hexdigest()[:8]
