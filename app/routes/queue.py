@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import re
 import time
@@ -36,7 +37,13 @@ def get_active() -> ActiveImport | None:
     try:
         fpath = config.IMPORT_ACTIVE_FILE
         with open(fpath) as f:
-            path = f.read().strip()
+            raw = f.read().strip()
+        if not raw:
+            return None
+        try:
+            path = json.loads(raw).get("path", "")
+        except (json.JSONDecodeError, AttributeError):
+            path = raw  # legacy plain-text format
         if not path:
             return None
         return ActiveImport(path=path, since=os.path.getmtime(fpath))
