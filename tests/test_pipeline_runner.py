@@ -312,3 +312,61 @@ def test_normal_import_does_not_call_beet_remove(
 
     mock_cmd.assert_not_called()
     mock_import.assert_called_once()
+
+
+@patch("app.pipeline.runner.run_beet_command")
+@patch("app.pipeline.runner.run_beet_import", return_value=ImportResult("nomatch", "Skipping.\n"))
+@patch("app.pipeline.runner.probe_flac")
+def test_failed_rematch_restores_library_entries(mock_flac, mock_import, mock_cmd, tmp_path):
+    """A rematch removes the album's DB entries before importing. If the import
+    then fails, the original files must be re-imported as-is so the album does
+    not silently vanish from the library."""
+    mock_flac.return_value = MagicMock(
+        artist="A", album="B", track_count=3, track_titles=["T1", "T2", "T3"],
+    )
+    d = _make_regular(tmp_path)
+
+    run(str(d), noincremental=True, mb_id_override="mb-123", move=True)
+
+    restore_calls = [c for c in mock_import.call_args_list if c.kwargs.get("mb_id") is None]
+    assert restore_calls, "expected a restore import with mb_id=None after the failed rematch"
+    assert restore_calls[-1].kwargs.get("move", False) is False
+    assert restore_calls[-1].args[0] == str(d)
+
+
+@patch("app.pipeline.runner.run_beet_command")
+@patch(
+    "app.pipeline.runner.run_beet_import",
+    return_value=ImportResult("imported", "Match (98%)\n"),
+)
+@patch("app.pipeline.runner.probe_flac")
+def test_successful_rematch_does_not_restore(mock_flac, mock_import, mock_cmd, tmp_path):
+    mock_flac.return_value = MagicMock(
+        artist="A", album="B", track_count=3, track_titles=["T1", "T2", "T3"],
+    )
+    d = _make_regular(tmp_path)
+
+    run(str(d), noincremental=True, mb_id_override="mb-123", move=True)
+
+    assert mock_import.call_count == 1
+
+
+@patch("app.pipeline.runner.run_beet_command")
+@patch("app.pipeline.runner.probe_flac")
+def test_failed_rematch_logs_orphaned_when_restore_also_fails(mock_flac, mock_cmd, tmp_path):
+    """If the restore import also fails, the album is truly orphaned — that must
+    be visible in the failed-imports log, not buried in service logs."""
+    mock_flac.return_value = MagicMock(
+        artist="A", album="B", track_count=3, track_titles=["T1", "T2", "T3"],
+    )
+    d = _make_regular(tmp_path)
+
+    with patch(
+        "app.pipeline.runner.run_beet_import",
+        return_value=ImportResult("nomatch", "Skipping.\n"),
+    ):
+        run(str(d), noincremental=True, mb_id_override="mb-123", move=True)
+
+    failed_log = Path(config.IMPORT_FAILED_LOG).read_text()
+    assert "rematch-orphaned" in failed_log
+    assert str(d) in failed_log

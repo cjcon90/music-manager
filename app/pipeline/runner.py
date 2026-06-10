@@ -106,35 +106,40 @@ def run(
         move=move,
     )
 
+    statuses: list[str] = []
+
     if mb_id_override and looks_like_multi_disc_cue_rip(root):
-        _process_multi_disc_cue_override(root, ctx)
-        return
+        statuses.append(_process_multi_disc_cue_override(root, ctx))
+    elif mb_id_override and looks_like_multi_disc_regular(root):
+        statuses.append(_process_multi_disc_regular_override(root, ctx))
+    else:
+        jobs = find_import_jobs(root)
+        if not jobs:
+            log.warning("No importable albums found in %s", path)
+            _log_beet_output("Skipped (no audio found)\n")
+            log_failed(path, "skipped")
+            return
 
-    if mb_id_override and looks_like_multi_disc_regular(root):
-        _process_multi_disc_regular_override(root, ctx)
-        return
+        for job in jobs:
+            if isinstance(job, CueRipJob):
+                statuses.append(_process_cue_rip(job, ctx))
+            elif isinstance(job, MultiCueRipJob):
+                statuses.append(_process_multi_cue_rip(job, ctx))
+            elif isinstance(job, MultiFileCueJob):
+                statuses.append(_process_multi_file_cue(job, ctx))
+            elif isinstance(job, RegularJob):
+                statuses.append(_process_regular(job, ctx))
+            elif isinstance(job, MultiDiscJob):
+                statuses.append(_process_multi_disc(job, ctx))
 
-    jobs = find_import_jobs(root)
-    if not jobs:
-        log.warning("No importable albums found in %s", path)
-        _log_beet_output("Skipped (no audio found)\n")
-        log_failed(path, "skipped")
-        return
-
-    for job in jobs:
-        if isinstance(job, CueRipJob):
-            _process_cue_rip(job, ctx)
-        elif isinstance(job, MultiCueRipJob):
-            _process_multi_cue_rip(job, ctx)
-        elif isinstance(job, MultiFileCueJob):
-            _process_multi_file_cue(job, ctx)
-        elif isinstance(job, RegularJob):
-            _process_regular(job, ctx)
-        elif isinstance(job, MultiDiscJob):
-            _process_multi_disc(job, ctx)
+    # Rematch safety net: the DB entries were removed up front. If nothing was
+    # imported, restore the original entries so the album doesn't vanish from
+    # the library.
+    if move and not any(s in ("imported", "duplicate") for s in statuses):
+        _restore_after_failed_rematch(root)
 
 
-def _process_cue_rip(job: CueRipJob, ctx: ImportContext) -> None:
+def _process_cue_rip(job: CueRipJob, ctx: ImportContext) -> str:
     stage_dir = staging.create_stage(str(job.path))
     probe = probe_cue(job.path)
 
@@ -145,21 +150,21 @@ def _process_cue_rip(job: CueRipJob, ctx: ImportContext) -> None:
             log.error("Split failed for %s: %s", job.path, e)
             log_failed(str(job.path), "skipped")
             staging.delete_stage(str(job.path))
-            return
+            return "skipped"
 
     mb_id = _resolve_mb_id(ctx, probe)
     result = run_beet_import(str(stage_dir), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
-    _handle_result(result, ctx.source_path, str(job.path))
+    return _handle_result(result, ctx.source_path, str(job.path))
 
 
-def _process_multi_cue_rip(job: MultiCueRipJob, ctx: ImportContext) -> None:
+def _process_multi_cue_rip(job: MultiCueRipJob, ctx: ImportContext) -> str:
     cue_files = sorted(
         f for f in job.path.iterdir()
         if f.suffix.lower() == ".cue" and "isrc" not in f.name.lower()
     )
     if not cue_files:
         log_failed(str(job.path), "skipped")
-        return
+        return "skipped"
 
     stage_root = staging.create_stage(str(job.path))
     all_titles: list[str] = []
@@ -178,20 +183,20 @@ def _process_multi_cue_rip(job: MultiCueRipJob, ctx: ImportContext) -> None:
                 log.error("Split failed for %s disc %d: %s", job.path, i, e)
                 log_failed(str(job.path), "skipped")
                 staging.delete_stage(str(job.path))
-                return
+                return "skipped"
 
     combined = _merge_probes(first_probe, all_titles)
     mb_id = _resolve_mb_id(ctx, combined)
     result = run_beet_import(str(stage_root), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
-    _handle_result(result, ctx.source_path, str(job.path))
+    return _handle_result(result, ctx.source_path, str(job.path))
 
 
-def _process_multi_file_cue(job: MultiFileCueJob, ctx: ImportContext) -> None:
+def _process_multi_file_cue(job: MultiFileCueJob, ctx: ImportContext) -> str:
     sections = probe_multi_file_cue(job.path)
     if not sections:
         log.warning("No sections found in multi-file CUE for %s", job.path)
         log_failed(str(job.path), "skipped")
-        return
+        return "skipped"
 
     stage_dir = staging.create_stage(str(job.path))
     all_titles: list[str] = []
@@ -208,16 +213,16 @@ def _process_multi_file_cue(job: MultiFileCueJob, ctx: ImportContext) -> None:
             log.error("Split failed for %s (%s): %s", job.path, section.source_file, e)
             log_failed(str(job.path), "skipped")
             staging.delete_stage(str(job.path))
-            return
+            return "skipped"
         all_titles.extend(section.track_titles)
 
     combined = _merge_probes(first, all_titles)
     mb_id = _resolve_mb_id(ctx, combined)
     result = run_beet_import(str(stage_dir), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
-    _handle_result(result, ctx.source_path, str(job.path))
+    return _handle_result(result, ctx.source_path, str(job.path))
 
 
-def _process_regular(job: RegularJob, ctx: ImportContext) -> None:
+def _process_regular(job: RegularJob, ctx: ImportContext) -> str:
     probe = probe_flac(job.path)
 
     # If FLAC tags are entirely absent, fall back to any companion CUE for artist/album/year.
@@ -239,10 +244,10 @@ def _process_regular(job: RegularJob, ctx: ImportContext) -> None:
 
     mb_id = _resolve_mb_id(ctx, probe)
     result = run_beet_import(str(job.path), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
-    _handle_result(result, ctx.source_path, str(job.path))
+    return _handle_result(result, ctx.source_path, str(job.path))
 
 
-def _process_multi_disc(job: MultiDiscJob, ctx: ImportContext) -> None:
+def _process_multi_disc(job: MultiDiscJob, ctx: ImportContext) -> str:
     disc_dirs = sorted(
         d for d in job.path.iterdir()
         if d.is_dir() and DISC_PATTERN.match(d.name)
@@ -260,8 +265,7 @@ def _process_multi_disc(job: MultiDiscJob, ctx: ImportContext) -> None:
         combined = _merge_probes(first_probe, all_titles)
         mb_id = _resolve_mb_id(ctx, combined)
         result = run_beet_import(str(job.path), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
-        _handle_result(result, ctx.source_path, str(job.path))
-        return
+        return _handle_result(result, ctx.source_path, str(job.path))
 
     stage_root = staging.create_stage(str(job.path))
     all_titles = []
@@ -280,21 +284,22 @@ def _process_multi_disc(job: MultiDiscJob, ctx: ImportContext) -> None:
                 log.error("Split failed for %s: %s", disc_dir, e)
                 log_failed(str(job.path), "skipped")
                 staging.delete_stage(str(job.path))
-                return
+                return "skipped"
 
     combined = _merge_probes(first_probe, all_titles)
     mb_id = _resolve_mb_id(ctx, combined)
     result = run_beet_import(str(stage_root), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
-    _handle_result(result, ctx.source_path, str(job.path))
+    return _handle_result(result, ctx.source_path, str(job.path))
 
 
-def _handle_result(result: ImportResult, source_path: str, album_path: str) -> None:
+def _handle_result(result: ImportResult, source_path: str, album_path: str) -> str:
     _log_beet_output(result.output)
     if result.status in ("imported", "duplicate"):
         staging.delete_stage(album_path)
     elif result.status in ("nomatch", "timeout"):
         kind = "nomatch" if result.status == "nomatch" else "skipped"
         log_failed(album_path, kind)
+    return result.status
 
 
 def _log_processing(path: str) -> None:
@@ -315,7 +320,7 @@ def log_failed(path: str, kind: str) -> None:
 def _process_multi_disc_regular_override(
     root: Path,
     ctx: ImportContext,
-) -> None:
+) -> str:
     """Stage multiple audio subdirs as CD 01/ CD 02/ etc. and import as one release.
 
     Uses symlinks rather than copies to avoid duplicating large FLAC files across
@@ -332,10 +337,12 @@ def _process_multi_disc_regular_override(
             root,
         )
         jobs = find_import_jobs(root)
-        for job in jobs:
-            if isinstance(job, RegularJob):
-                _process_regular(job, ctx)
-        return
+        statuses = [
+            _process_regular(job, ctx) for job in jobs if isinstance(job, RegularJob)
+        ]
+        if "imported" in statuses:
+            return "imported"
+        return statuses[0] if statuses else "skipped"
 
     audio_subdirs = sorted(
         d for d in root.iterdir()
@@ -344,7 +351,7 @@ def _process_multi_disc_regular_override(
     )
     if len(audio_subdirs) < 2:
         log_failed(ctx.source_path, "skipped")
-        return
+        return "skipped"
 
     stage_root = staging.create_stage(ctx.source_path)
 
@@ -366,13 +373,13 @@ def _process_multi_disc_regular_override(
         noincremental=ctx.noincremental,
         move=ctx.move,
     )
-    _handle_result(result, ctx.source_path, ctx.source_path)
+    return _handle_result(result, ctx.source_path, ctx.source_path)
 
 
 def _process_multi_disc_cue_override(
     root: Path,
     ctx: ImportContext,
-) -> None:
+) -> str:
     """Split each disc-image CUE rip under *root* into a shared staging tree and import together.
 
     Used when the user has supplied a specific MusicBrainz release ID for a multi-disc
@@ -385,7 +392,7 @@ def _process_multi_disc_cue_override(
     )
     if not disc_dirs:
         log_failed(ctx.source_path, "skipped")
-        return
+        return "skipped"
 
     stage_root = staging.create_stage(ctx.source_path)
 
@@ -399,10 +406,25 @@ def _process_multi_disc_cue_override(
                 log.error("Split failed for %s: %s", disc_dir, e)
                 log_failed(ctx.source_path, "skipped")
                 staging.delete_stage(ctx.source_path)
-                return
+                return "skipped"
 
     result = run_beet_import(str(stage_root), mb_id=ctx.mb_id_override, noincremental=ctx.noincremental, move=ctx.move)
-    _handle_result(result, ctx.source_path, ctx.source_path)
+    return _handle_result(result, ctx.source_path, ctx.source_path)
+
+
+def _restore_after_failed_rematch(root: Path) -> None:
+    """Re-import library files as-is after a failed rematch.
+
+    run() removes the album's DB entries before a rematch import (otherwise
+    duplicate_action: skip blocks it). If that import then fails, the files
+    are still on disk but invisible to the library — re-import them with
+    their existing tags (--noautotag) to restore the entries.
+    """
+    log.warning("Rematch failed for %s — restoring original library entries", root)
+    result = run_beet_import(str(root), mb_id=None, noincremental=True)
+    _log_beet_output(result.output)
+    if result.status not in ("imported", "duplicate"):
+        log_failed(str(root), "rematch-orphaned")
 
 
 def _append(filepath: str, text: str) -> None:
