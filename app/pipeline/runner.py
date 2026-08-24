@@ -243,6 +243,17 @@ def _process_regular(job: RegularJob, ctx: ImportContext) -> str:
             )
 
     mb_id = _resolve_mb_id(ctx, probe)
+
+    # Nothing identifies this album: no tags, no usable CUE, and no MB match to
+    # fall back on. Importing anyway means --noautotag over untagged files, which
+    # files a blank album and exits 0 — so it never surfaces for review. Send it
+    # to the Failed Imports tab instead and let the user pick a release.
+    if mb_id is None and not probe.artist and not probe.album:
+        log.warning("No usable metadata for %s — routing to failed imports", job.path)
+        _log_beet_output("Skipped (no tags, no CUE metadata, no MusicBrainz match)\n")
+        log_failed(str(job.path), "blank-metadata")
+        return "blank-metadata"
+
     result = run_beet_import(str(job.path), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
     return _handle_result(result, ctx.source_path, str(job.path))
 

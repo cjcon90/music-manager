@@ -32,11 +32,13 @@
     <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:
       {%- if entry.kind == 'skipped' %}#f59e0b
       {%- elif entry.kind == 'error' %}#f87171
+      {%- elif entry.kind == 'blank-metadata' %}#a78bfa
       {%- else %}#ff6464{% endif %}"></span>
     <span style="flex:1;font-weight:500">{{ entry.name }}</span>
     <span style="font-size:10px;opacity:0.5">
       {%- if entry.kind == 'skipped' %}skipped
       {%- elif entry.kind == 'error' %}pipeline error
+      {%- elif entry.kind == 'blank-metadata' %}no tags — pick a release
       {%- else %}no match{% endif -%}
     </span>
     {% if entry.kind in ('skipped', 'error') %}

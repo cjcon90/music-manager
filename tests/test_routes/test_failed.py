@@ -215,3 +215,35 @@ def test_dismiss_by_path_missing_log_returns_204(client, tmp_path, monkeypatch):
     monkeypatch.setattr("app.config.IMPORT_FAILED_LOG", str(tmp_path / "nonexistent.log"))
     resp = client.post("/failed/dismiss-by-path", data={"path": "/data/downloads/some/album"})
     assert resp.status_code == 204
+
+
+BLANK_LOG = (
+    "2026-08-24 18:56:55 | blank-metadata | "
+    "/media/downloads/complete/music/Manuel_Guajiro_Mirabal\n"
+)
+
+
+def test_blank_metadata_entry_is_not_labelled_no_match(client, tmp_path):
+    """A blank-metadata failure must not be described as a failed MB match.
+
+    The files had no tags at all, so MusicBrainz was never queried — calling it
+    "no match" points the user at the wrong problem.
+    """
+    import app.config as cfg
+
+    _setup(cfg, tmp_path, content=BLANK_LOG)
+    resp = client.get("/failed")
+
+    assert resp.status_code == 200
+    assert b"Manuel_Guajiro_Mirabal" in resp.data
+    assert b"no match" not in resp.data
+
+
+def test_blank_metadata_entry_says_the_files_have_no_tags(client, tmp_path):
+    """The label should name the actual cause so the fix is obvious."""
+    import app.config as cfg
+
+    _setup(cfg, tmp_path, content=BLANK_LOG)
+    resp = client.get("/failed")
+
+    assert b"no tags" in resp.data

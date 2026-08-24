@@ -370,3 +370,95 @@ def test_failed_rematch_logs_orphaned_when_restore_also_fails(mock_flac, mock_cm
     failed_log = Path(config.IMPORT_FAILED_LOG).read_text()
     assert "rematch-orphaned" in failed_log
     assert str(d) in failed_log
+
+
+# ---------------------------------------------------------------------------
+# Blank metadata: an import with nothing to identify it must not be filed as
+# a success. See docs/11-music-manager.md — three albums landed in the library
+# with every field empty because --noautotag exits 0.
+# ---------------------------------------------------------------------------
+
+@patch("app.pipeline.runner.find_best_release", return_value=None)
+@patch("app.pipeline.runner.run_beet_import", return_value=ImportResult("imported", ""))
+@patch("app.pipeline.runner.probe_cue")
+@patch("app.pipeline.runner.probe_flac")
+def test_regular_blank_metadata_is_not_imported(
+    mock_flac, mock_cue, mock_import, mock_mb, tmp_path
+):
+    """Untagged FLACs with no usable CUE must not reach beet at all.
+
+    Importing them would run --noautotag over files with no tags, producing an
+    album with no artist, no album and no track numbers — and exit 0, so it
+    would never surface for review.
+    """
+    mock_flac.return_value = MagicMock(artist="", album="", track_count=11, track_titles=[])
+    mock_cue.return_value = MagicMock(artist="", album="", track_count=0, track_titles=[])
+
+    d = _make_regular(tmp_path, name="Manuel_Guajiro_Mirabal")
+    run(str(d))
+
+    mock_import.assert_not_called()
+
+
+@patch("app.pipeline.runner.find_best_release", return_value=None)
+@patch("app.pipeline.runner.run_beet_import", return_value=ImportResult("imported", ""))
+@patch("app.pipeline.runner.probe_cue")
+@patch("app.pipeline.runner.probe_flac")
+def test_regular_blank_metadata_logged_for_failed_tab(
+    mock_flac, mock_cue, mock_import, mock_mb, tmp_path
+):
+    """The skipped album is recorded so it appears in the Failed Imports tab."""
+    mock_flac.return_value = MagicMock(artist="", album="", track_count=11, track_titles=[])
+    mock_cue.return_value = MagicMock(artist="", album="", track_count=0, track_titles=[])
+
+    d = _make_regular(tmp_path, name="Manuel_Guajiro_Mirabal")
+    run(str(d))
+
+    log = (tmp_path / "import-failed.log").read_text()
+    assert "blank-metadata" in log
+    assert str(d) in log
+
+
+@patch("app.pipeline.runner.run_beet_import", return_value=ImportResult("imported", ""))
+@patch("app.pipeline.runner.probe_cue")
+@patch("app.pipeline.runner.probe_flac")
+def test_blank_metadata_still_imports_when_user_chose_a_release(
+    mock_flac, mock_cue, mock_import, tmp_path
+):
+    """A manual match must still work on untagged files.
+
+    The user supplying a release ID is exactly how these get repaired, so the
+    blank-metadata guard must not block it.
+    """
+    mock_flac.return_value = MagicMock(artist="", album="", track_count=11, track_titles=[])
+    mock_cue.return_value = MagicMock(artist="", album="", track_count=0, track_titles=[])
+
+    d = _make_regular(tmp_path, name="Manuel_Guajiro_Mirabal")
+    run(str(d), mb_id_override="a1eb2e42-d396-40db-89a1-d3f08b16f060")
+
+    mock_import.assert_called_once()
+    assert mock_import.call_args[1]["mb_id"] == "a1eb2e42-d396-40db-89a1-d3f08b16f060"
+
+
+@patch("app.pipeline.runner.find_best_release", return_value=None)
+@patch("app.pipeline.runner.run_beet_import", return_value=ImportResult("imported", ""))
+@patch("app.pipeline.runner.probe_cue")
+@patch("app.pipeline.runner.probe_flac")
+def test_partial_metadata_still_imports_via_noautotag(
+    mock_flac, mock_cue, mock_import, mock_mb, tmp_path
+):
+    """Only a *completely* blank probe is blocked.
+
+    An album with an artist but no album title still has something to file it
+    under, so the existing matcher-miss fallback must keep working.
+    """
+    mock_flac.return_value = MagicMock(
+        artist="Nick Drake", album="", track_count=11, track_titles=[]
+    )
+    mock_cue.return_value = MagicMock(artist="", album="", track_count=0, track_titles=[])
+
+    d = _make_regular(tmp_path, name="Nick Drake")
+    run(str(d))
+
+    mock_import.assert_called_once()
+    assert mock_import.call_args[1]["mb_id"] is None
