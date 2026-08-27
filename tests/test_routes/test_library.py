@@ -96,3 +96,83 @@ def test_library_shows_format(mock_list, mock_count, mock_attention, mock_active
     resp = client.get("/")
     assert b"FLAC" in resp.data
     assert b"MP3" in resp.data
+
+
+@patch("app.routes.library.count_albums_without_mbid", return_value=37)
+@patch("app.routes.library.get_active", return_value=None)
+@patch("app.routes.library.count_need_attention", return_value=0)
+@patch("app.routes.library.count_albums", return_value=895)
+@patch("app.routes.library.list_albums", return_value=[MOCK_ALBUMS[1]])
+def test_library_no_mb_filter_queries_albums_missing_mbid(
+    mock_list, mock_count, mock_attention, mock_active, mock_nomb, client
+):
+    resp = client.get("/?filter=no-mb")
+    assert resp.status_code == 200
+    mock_list.assert_called_with("mb_albumid::^$")
+
+
+@patch("app.routes.library.count_albums_without_mbid", return_value=37)
+@patch("app.routes.library.get_active", return_value=None)
+@patch("app.routes.library.count_need_attention", return_value=0)
+@patch("app.routes.library.count_albums", return_value=895)
+@patch("app.routes.library.list_albums", return_value=[MOCK_ALBUMS[1]])
+def test_library_no_mb_filter_composes_with_search(
+    mock_list, mock_count, mock_attention, mock_active, mock_nomb, client
+):
+    resp = client.get("/?q=Bowie&filter=no-mb")
+    assert resp.status_code == 200
+    mock_list.assert_called_with("Bowie mb_albumid::^$")
+
+
+@patch("app.routes.library.count_albums_without_mbid", return_value=37)
+@patch("app.routes.library.get_active", return_value=None)
+@patch("app.routes.library.count_need_attention", return_value=0)
+@patch("app.routes.library.count_albums", return_value=895)
+@patch("app.routes.library.list_albums", return_value=MOCK_ALBUMS)
+def test_library_unknown_filter_value_is_ignored(
+    mock_list, mock_count, mock_attention, mock_active, mock_nomb, client
+):
+    resp = client.get("/?q=Bowie&filter=bogus")
+    assert resp.status_code == 200
+    mock_list.assert_called_with("Bowie")
+
+
+@patch("app.routes.library.count_albums_without_mbid", return_value=37)
+@patch("app.routes.library.get_active", return_value=None)
+@patch("app.routes.library.count_need_attention", return_value=0)
+@patch("app.routes.library.count_albums", return_value=895)
+@patch("app.routes.library.list_albums", return_value=MOCK_ALBUMS)
+def test_library_tile_shows_no_mb_count_and_links_to_filter(
+    mock_list, mock_count, mock_attention, mock_active, mock_nomb, client
+):
+    resp = client.get("/")
+    data = resp.data.decode()
+    assert "37" in data
+    assert "filter=no-mb" in data
+
+
+@patch("app.routes.library.count_albums_without_mbid", return_value=37)
+@patch("app.routes.library.get_active", return_value=None)
+@patch("app.routes.library.count_need_attention", return_value=0)
+@patch("app.routes.library.count_albums", return_value=895)
+@patch("app.routes.library.list_albums", return_value=[MOCK_ALBUMS[1]])
+def test_library_filtered_view_announces_itself_and_offers_clear(
+    mock_list, mock_count, mock_attention, mock_active, mock_nomb, client
+):
+    resp = client.get("/?filter=no-mb")
+    data = resp.data.decode()
+    assert "no MusicBrainz ID" in data
+    assert "Clear filter" in data
+
+
+@patch("app.routes.library.count_albums_without_mbid", return_value=37)
+@patch("app.routes.library.get_active", return_value=None)
+@patch("app.routes.library.count_need_attention", return_value=0)
+@patch("app.routes.library.count_albums", return_value=895)
+@patch("app.routes.library.list_albums", return_value=[MOCK_ALBUMS[1]])
+def test_library_search_form_keeps_filter_active(
+    mock_list, mock_count, mock_attention, mock_active, mock_nomb, client
+):
+    resp = client.get("/?filter=no-mb")
+    data = resp.data.decode()
+    assert '<input type="hidden" name="filter" value="no-mb">' in data

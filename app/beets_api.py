@@ -6,6 +6,11 @@ from beets.library import Library
 from app.config import BEETS_DB_PATH
 from app.types import AlbumInfo, TrackInfo
 
+# beets query matching albums with no MusicBrainz release ID. `field::regex`
+# is beets' regex form; ^$ matches the empty string beets stores for an
+# unmatched album. Composes with a free-text search by whitespace-joining.
+NO_MBID_QUERY = "mb_albumid::^$"
+
 
 @contextmanager
 def _library() -> Generator[Library, None, None]:
@@ -52,6 +57,11 @@ def _album_to_info(a: Any) -> AlbumInfo:
 def count_albums() -> int:
     with _library() as lib:
         return len(list(lib.albums()))
+
+
+def count_albums_without_mbid() -> int:
+    with _library() as lib:
+        return len(list(lib.albums(NO_MBID_QUERY)))
 
 
 def list_albums(query: str = "") -> list[AlbumInfo]:

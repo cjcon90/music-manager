@@ -18,17 +18,36 @@
     <div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px">All Clear</div>
   </div>
   {% endif %}
+  {% if no_mb_count > 0 %}
+  <a href="{{ url_for('library.index', filter='no-mb') }}" style="flex:1;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,{% if no_mb %}0.6{% else %}0.2{% endif %});border-radius:6px;padding:10px;text-align:center;text-decoration:none;display:block">
+    <div style="font-size:22px;font-weight:700;color:#a78bfa">{{ no_mb_count }}</div>
+    <div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px">No MB ID</div>
+  </a>
+  {% else %}
+  <div style="flex:1;background:rgba(74,222,128,0.05);border:1px solid rgba(74,222,128,0.15);border-radius:6px;padding:10px;text-align:center">
+    <div style="font-size:22px;font-weight:700;color:#4ade80">✓</div>
+    <div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px">All Tagged</div>
+  </div>
+  {% endif %}
   <div style="flex:1;background:{% if queue_active %}rgba(74,222,128,0.08){% else %}rgba(255,255,255,0.02){% endif %};border:1px solid {% if queue_active %}rgba(74,222,128,0.2){% else %}rgba(255,255,255,0.08){% endif %};border-radius:6px;padding:10px;text-align:center">
     <div style="font-size:22px;font-weight:700;color:{% if queue_active %}#4ade80{% else %}rgba(255,255,255,0.2){% endif %}">{% if queue_active %}● Live{% else %}○ Idle{% endif %}</div>
     <div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px">Queue</div>
   </div>
 </div>
 
+{% if no_mb %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:8px 12px;background:rgba(167,139,250,0.06);border-left:2px solid #a78bfa;border-radius:4px">
+  <span style="font-size:12px;color:#a78bfa">Showing albums with no MusicBrainz ID{% if query %} matching “{{ query }}”{% endif %} — these scrobble to ListenBrainz by fuzzy name match rather than exact ID.</span>
+  <a href="{{ url_for('library.index', q=query or None) }}" class="btn btn-secondary" style="margin-left:auto;padding:4px 10px;font-size:11px;white-space:nowrap">Clear filter</a>
+</div>
+{% endif %}
+
 <div class="search-bar">
   <form method="get" action="{{ url_for('library.index') }}" style="display:flex;gap:8px;flex:1">
-    <input type="text" name="q" value="{{ query }}" placeholder="Search artist or album…">
+    {% if no_mb %}<input type="hidden" name="filter" value="no-mb">{% endif %}
+    <input type="text" name="q" value="{{ query }}" placeholder="{% if no_mb %}Search within untagged albums…{% else %}Search artist or album…{% endif %}">
     <button type="submit" class="btn btn-primary">Search</button>
-    {% if query %}<a href="{{ url_for('library.index') }}" class="btn btn-secondary">Clear</a>{% endif %}
+    {% if query %}<a href="{{ url_for('library.index', filter='no-mb' if no_mb else None) }}" class="btn btn-secondary">Clear</a>{% endif %}
   </form>
 </div>
 

@@ -185,3 +185,17 @@ def test_album_info_artpath_str_passthrough(mock_lib_cls):
     result = list_albums()
 
     assert result[0]["artpath"] == "/media/music/Bowie/cover.jpg"
+
+
+@patch("app.beets_api.Library")
+def test_count_albums_without_mbid_uses_empty_mb_albumid_query(mock_lib_cls):
+    lib = mock_lib_cls.return_value
+    lib.albums.return_value = [MagicMock(), MagicMock(), MagicMock()]
+
+    from app.beets_api import NO_MBID_QUERY, count_albums_without_mbid
+    assert count_albums_without_mbid() == 3
+
+    # The query string is the contract with beets: `field::regex` with ^$ matches
+    # albums whose mb_albumid is empty. Verified against the live library.
+    assert NO_MBID_QUERY == "mb_albumid::^$"
+    lib.albums.assert_called_with(NO_MBID_QUERY)
