@@ -8,7 +8,7 @@
     <div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px">Albums</div>
   </div>
   {% if need_attention > 0 %}
-  <a href="{{ url_for('failed.index') }}" style="flex:1;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:6px;padding:10px;text-align:center;text-decoration:none;display:block">
+  <a href="{{ url_for('failed.index') }}" style="flex:1;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:6px;padding:10px;text-align:center;text-decoration:none;display:block;color:var(--text-primary)">
     <div style="font-size:22px;font-weight:700;color:#f59e0b">{{ need_attention }}</div>
     <div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px">Need Attention</div>
   </a>
@@ -19,7 +19,7 @@
   </div>
   {% endif %}
   {% if no_mb_count > 0 %}
-  <a href="{{ url_for('library.index', filter='no-mb') }}" style="flex:1;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,{% if no_mb %}0.6{% else %}0.2{% endif %});border-radius:6px;padding:10px;text-align:center;text-decoration:none;display:block">
+  <a href="{{ url_for('library.index', filter='no-mb') }}" style="flex:1;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,{% if no_mb %}0.6{% else %}0.2{% endif %});border-radius:6px;padding:10px;text-align:center;text-decoration:none;display:block;color:var(--text-primary)">
     <div style="font-size:22px;font-weight:700;color:#a78bfa">{{ no_mb_count }}</div>
     <div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px">No MB ID</div>
   </a>

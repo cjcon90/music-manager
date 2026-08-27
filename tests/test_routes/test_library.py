@@ -1,3 +1,4 @@
+import re
 from unittest.mock import patch
 
 MOCK_ALBUMS = [
@@ -149,6 +150,28 @@ def test_library_tile_shows_no_mb_count_and_links_to_filter(
     data = resp.data.decode()
     assert "37" in data
     assert "filter=no-mb" in data
+
+
+@patch("app.routes.library.count_albums_without_mbid", return_value=37)
+@patch("app.routes.library.get_active", return_value=None)
+@patch("app.routes.library.count_need_attention", return_value=4)
+@patch("app.routes.library.count_albums", return_value=895)
+@patch("app.routes.library.list_albums", return_value=MOCK_ALBUMS)
+def test_stat_tile_links_set_their_own_text_colour(
+    mock_list, mock_count, mock_attention, mock_active, mock_nomb, client
+):
+    # app.css has no bare `a {}` rule, so an anchor without an explicit colour
+    # falls back to the browser default link blue. The tile label divs carry no
+    # colour of their own, so they inherit from the anchor — unreadable on a
+    # tinted tile. Every clickable tile must set a colour on the <a> itself.
+    data = resp_data = client.get("/").data.decode()
+    anchors = re.findall(r"<a\b[^>]*\bstyle=\"[^\"]*\"[^>]*>", resp_data)
+    tile_anchors = [a for a in anchors if "border-radius:6px" in a]
+
+    assert tile_anchors, "expected at least one clickable stat tile"
+    for anchor in tile_anchors:
+        assert re.search(r"[;\"]color:", anchor), f"tile anchor has no colour: {anchor}"
+    assert "37" in data
 
 
 @patch("app.routes.library.count_albums_without_mbid", return_value=37)
