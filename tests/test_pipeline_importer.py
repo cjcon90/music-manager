@@ -160,3 +160,33 @@ def test_run_beet_command_accepts_input(mock_run):
     run_beet_command(["beet", "remove", "-d", "id:1"], input="yes\n")
     call_kwargs = mock_run.call_args.kwargs
     assert call_kwargs.get("input") == "yes\n"
+
+
+def test_run_beet_command_raises_when_the_lock_is_held():
+    """A request must never wait on a running import.
+
+    Blocking here occupied the only worker until gunicorn's arbiter killed it,
+    which also killed the in-flight `beet import` and started the re-queue loop.
+    """
+    from app.pipeline import importer
+
+    importer._beet_lock.acquire()
+    try:
+        with pytest.raises(importer.BeetBusy):
+            importer.run_beet_command(["beet", "version"], lock_timeout=0.05)
+    finally:
+        importer._beet_lock.release()
+
+
+def test_run_beet_command_releases_the_lock_when_the_subprocess_raises():
+    import subprocess
+    from unittest.mock import patch
+
+    from app.pipeline import importer
+
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("beet", 1)):
+        with pytest.raises(subprocess.TimeoutExpired):
+            importer.run_beet_command(["beet", "version"])
+
+    assert importer._beet_lock.acquire(timeout=0.05), "lock was not released"
+    importer._beet_lock.release()

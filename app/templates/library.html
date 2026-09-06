@@ -4,7 +4,7 @@
 
 <div style="display:flex;gap:12px;margin-bottom:20px">
   <div style="flex:1;background:rgba(126,200,227,0.08);border:1px solid rgba(126,200,227,0.2);border-radius:6px;padding:10px;text-align:center">
-    <div style="font-size:22px;font-weight:700;color:#7ec8e3">{{ album_count }}</div>
+    <div id="album-count" style="font-size:22px;font-weight:700;color:#7ec8e3">{{ album_count }}</div>
     <div style="font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px">Albums</div>
   </div>
   {% if need_attention > 0 %}
@@ -71,6 +71,7 @@
         <img src="{{ url_for('album.art', album_id=album.id) }}"
              class="album-art"
              width="48" height="48"
+             loading="lazy" decoding="async"
              alt="">
       </td>
       <td>{{ album.artist }}</td>
@@ -93,7 +94,9 @@
                 data-album-id="{{ album.id }}"
                 style="padding:4px 10px;font-size:11px">Fix Art</button>
         <a href="{{ url_for('remove.confirm', album_id=album.id) }}"
-           class="btn btn-danger"
+           class="btn btn-danger remove-btn"
+           data-album-id="{{ album.id }}"
+           data-album-label="{{ album.artist }} — {{ album.album }}"
            style="padding:4px 10px;font-size:11px">Remove</a>
       </td>
     </tr>
@@ -104,6 +107,44 @@
 </table>
 
 <script>
+function bumpAlbumCount(delta) {
+  const el = document.getElementById('album-count');
+  const n = parseInt(el.textContent, 10);
+  if (!isNaN(n)) el.textContent = n + delta;
+}
+
+// Delete in place. Redirecting back to the library after every removal meant
+// re-rendering ~1000 rows per delete, which is what wedged the browser.
+document.querySelectorAll('.remove-btn').forEach(link => {
+  link.addEventListener('click', async e => {
+    e.preventDefault();
+    const label = link.dataset.albumLabel;
+    if (!confirm(`Remove "${label}"?\n\nThis deletes the library entry and the music files.`)) return;
+
+    const row = link.closest('tr');
+    const orig = link.textContent;
+    link.textContent = '…';
+    row.style.opacity = '0.4';
+    try {
+      const resp = await fetch(`/remove/${link.dataset.albumId}`, {
+        method: 'POST',
+        headers: {'Accept': 'application/json'},
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.ok) {
+        row.remove();
+        bumpAlbumCount(-1);
+        return;
+      }
+      alert(`Could not remove "${label}":\n${data.error || 'HTTP ' + resp.status}`);
+    } catch (err) {
+      alert(`Could not remove "${label}":\n${err}`);
+    }
+    row.style.opacity = '';
+    link.textContent = orig;
+  });
+});
+
 document.querySelectorAll('.fix-art-btn').forEach(btn => {
   btn.addEventListener('click', async () => {
     const id = btn.dataset.albumId;

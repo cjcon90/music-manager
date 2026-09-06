@@ -1,5 +1,8 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+from PIL import Image
+
 _BASE_ALBUM = {
     "id": 1,
     "album": "Ziggy Stardust",
@@ -36,20 +39,55 @@ def test_art_returns_svg_when_file_missing_from_disk(mock_get, client, tmp_path)
     assert resp.content_type == "image/svg+xml"
 
 
+@pytest.fixture
+def cover(tmp_path, monkeypatch):
+    """A real cover on disk, with the thumbnail cache pointed at a temp dir."""
+    from app import artcache
+
+    monkeypatch.setattr(artcache.config, "BEETSDIR", str(tmp_path))
+    path = tmp_path / "cover.jpg"
+    Image.new("RGB", (1000, 1000), (200, 30, 30)).save(path, "JPEG")
+    return path
+
+
 @patch("app.routes.album.get_album_by_id")
-def test_art_serves_file_when_artpath_exists(mock_get, client, tmp_path):
-    cover = tmp_path / "cover.jpg"
-    cover.write_bytes(b"\xff\xd8\xff\xe0")  # minimal JPEG header
+def test_art_serves_a_thumbnail_when_artpath_exists(mock_get, client, cover):
     mock_get.return_value = {**_BASE_ALBUM, "artpath": str(cover)}
+
     resp = client.get("/album/1/art")
+
     assert resp.status_code == 200
-    assert "image/jpeg" in resp.content_type
+    assert "image/webp" in resp.content_type
 
 
 @patch("app.routes.album.get_album_by_id")
-def test_art_has_no_cache_header(mock_get, client, tmp_path):
-    cover = tmp_path / "cover.jpg"
-    cover.write_bytes(b"\xff\xd8\xff\xe0")
+def test_art_response_is_much_smaller_than_the_original(mock_get, client, cover):
+    mock_get.return_value = {**_BASE_ALBUM, "artpath": str(cover)}
+
+    resp = client.get("/album/1/art")
+
+    assert len(resp.data) < cover.stat().st_size / 10
+
+
+@patch("app.routes.album.get_album_by_id")
+def test_art_falls_back_to_svg_when_the_cover_is_undecodable(
+    mock_get, client, tmp_path, monkeypatch
+):
+    from app import artcache
+
+    monkeypatch.setattr(artcache.config, "BEETSDIR", str(tmp_path))
+    junk = tmp_path / "cover.jpg"
+    junk.write_bytes(b"\xff\xd8\xff\xe0not actually a jpeg")
+    mock_get.return_value = {**_BASE_ALBUM, "artpath": str(junk)}
+
+    resp = client.get("/album/1/art")
+
+    assert resp.status_code == 200
+    assert resp.content_type == "image/svg+xml"
+
+
+@patch("app.routes.album.get_album_by_id")
+def test_art_has_no_cache_header(mock_get, client, cover):
     mock_get.return_value = {**_BASE_ALBUM, "artpath": str(cover)}
     resp = client.get("/album/1/art")
     assert "no-cache" in resp.headers.get("Cache-Control", "")

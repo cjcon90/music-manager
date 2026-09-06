@@ -1,10 +1,11 @@
-import mimetypes
 from pathlib import Path
 
 from flask import Blueprint, Response, jsonify, make_response, redirect, request, send_file, url_for
+from flask.typing import ResponseReturnValue
 
+from app.artcache import get_thumb
 from app.beets_api import get_album_by_id, get_album_tracks
-from app.pipeline.importer import run_beet_command
+from app.pipeline.importer import BeetBusy, run_beet_command
 from app.queue_writer import write_queue_job
 from mutagen.flac import FLAC
 
@@ -28,19 +29,25 @@ def _svg_response() -> Response:
 
 @bp.route("/album/<int:album_id>/art")
 def art(album_id: int) -> Response:
+    """Serve a 96px thumbnail of the album cover, never the original.
+
+    Originals average 300 KB and the template paints them into a 48px box, so
+    sending them was the bulk of the library page's ~283 MB. Cache-Control stays
+    "no-cache": Fix Art replaces covers in place, and at ~4 KB a 304 revalidation
+    is cheaper than showing a stale cover.
+    """
     album = get_album_by_id(album_id)
     if album and album["artpath"]:
-        p = Path(album["artpath"])
-        if p.exists():
-            mime = mimetypes.guess_type(str(p))[0] or "image/jpeg"
-            resp = send_file(p, mimetype=mime)
+        thumb = get_thumb(album_id, Path(album["artpath"]))
+        if thumb is not None:
+            resp = send_file(thumb, mimetype="image/webp")
             resp.headers["Cache-Control"] = "no-cache"
             return resp
     return _svg_response()
 
 
 @bp.route("/album/<int:album_id>/fix-art", methods=["POST"])
-def fix_art(album_id: int) -> Response:
+def fix_art(album_id: int) -> ResponseReturnValue:
     tracks = get_album_tracks(album_id)
     if not tracks:
         return jsonify({"ok": False, "error": "Album not found or has no tracks"}), 404
@@ -56,7 +63,12 @@ def fix_art(album_id: int) -> Response:
         except Exception as e:
             return jsonify({"ok": False, "error": f"Strip failed for {flac_path.name}: {e}"}), 500
 
-    result = run_beet_command(["beet", "fetchart", "-f", f"id:{album_id}"])
+    try:
+        result = run_beet_command(["beet", "fetchart", "-f", f"id:{album_id}"])
+    except BeetBusy:
+        busy = "An import is running — try again in a moment."
+        return jsonify({"ok": False, "error": busy}), 503
+
     if result.returncode != 0:
         return jsonify({"ok": False, "error": result.stderr or result.stdout or "beet fetchart failed"}), 500
 
@@ -69,7 +81,7 @@ def rematch(album_id: int) -> Response:
 
 
 @bp.route("/album/<int:album_id>/queue-rematch", methods=["POST"])
-def queue_rematch(album_id: int) -> Response:
+def queue_rematch(album_id: int) -> ResponseReturnValue:
     """Enqueue a library rematch — watcher applies it in the background.
 
     Uses --move so beet relocates files cleanly when the artist/album path

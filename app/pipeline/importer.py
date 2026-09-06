@@ -11,6 +11,18 @@ log = logging.getLogger(__name__)
 # Serialise all beet invocations — beet's SQLite DB does not tolerate concurrent writers
 _beet_lock = threading.Lock()
 
+# How long a web request will wait for the lock before giving up. An import can
+# hold it for hours, and a request that blocks that long occupies a worker until
+# gunicorn's arbiter kills the worker for a missed heartbeat — which also kills
+# the in-flight `beet import`, which crash recovery then re-queues. That is the
+# import-churn loop seen on 2026-07-25; failing fast is what breaks it.
+BEET_LOCK_TIMEOUT = 10
+
+
+class BeetBusy(RuntimeError):
+    """The beet lock is held by a running import; the caller should retry later."""
+
+
 # Config overlay applied whenever the user has explicitly chosen an MB release ID.
 # Sets strong_rec_thresh: 1.0 so beet auto-applies the match regardless of
 # track-length differences between pressings. The user already made the call.
@@ -22,14 +34,20 @@ def run_beet_command(
     *,
     timeout: int = 60,
     input: str | None = None,
+    lock_timeout: float = BEET_LOCK_TIMEOUT,
 ) -> subprocess.CompletedProcess:
     """Run an arbitrary beet subcommand under the serialisation lock.
 
     Use this for any beet call outside the main import path (e.g. fetchart,
     remove) so all beet processes share the same SQLite-write lock and avoid
     database corruption from concurrent writes.
+
+    Raises BeetBusy if the lock is not free within *lock_timeout* seconds, so
+    a request never waits on a running import — see BEET_LOCK_TIMEOUT.
     """
-    with _beet_lock:
+    if not _beet_lock.acquire(timeout=lock_timeout):
+        raise BeetBusy("a beets import is currently running")
+    try:
         return subprocess.run(
             cmd,
             capture_output=True,
@@ -38,6 +56,8 @@ def run_beet_command(
             input=input,
             env={**os.environ, "BEETSDIR": BEETSDIR},
         )
+    finally:
+        _beet_lock.release()
 
 
 @dataclass
