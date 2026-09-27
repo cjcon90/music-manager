@@ -2,6 +2,7 @@ import os
 import re
 from pathlib import Path
 
+import requests
 from flask import Blueprint, Response, abort, jsonify, render_template, request, stream_with_context
 
 from app import staging as _staging
@@ -16,6 +17,13 @@ from app.queue_writer import write_queue_job
 from app.types import TrackDetail, TrackRow
 
 bp = Blueprint("manual_match", __name__)
+
+# Shown when MusicBrainz cannot be reached at all. `_get()` in app.musicbrainz
+# already retries transient failures before re-raising, so by the time one of
+# these reaches a route the network really is down. Letting it hit Flask gives a
+# bare 500 with no clue — on 2026-09-20 a DNS outage surfaced as an SSLError and
+# cost an evening of chasing a certificate problem that did not exist.
+MB_UNREACHABLE = "MusicBrainz unreachable — check the network and try again."
 
 
 def _local_tracks(stage_path: str) -> list[str]:
@@ -127,7 +135,12 @@ def search():
     query = request.form.get("query", "").strip()
     artist = request.form.get("artist", "").strip()
     has_input = bool(query or artist)
-    candidates = search_releases(query, artist=artist, title=query) if has_input else []
+    mb_error = None
+    try:
+        candidates = search_releases(query, artist=artist, title=query) if has_input else []
+    except requests.exceptions.RequestException:
+        candidates = []
+        mb_error = MB_UNREACHABLE
     local_tracks, using_cue, single_flac = _stage_info(stage_path)
     for c in candidates:
         mb_tracks = [TrackDetail(position=i + 1, title=t) for i, t in enumerate(c["tracks"])]
@@ -158,6 +171,7 @@ def search():
         artist=artist,
         candidates=candidates,
         searched=True,
+        mb_error=mb_error,
         apply_id_release=None,
         track_rows=[],
         local_tracks=local_tracks,
@@ -172,7 +186,12 @@ def apply_by_id():
     album_id = _parse_album_id(request.form.get("album_id", ""))
     from_library = album_id is not None
     mb_uuid = request.form.get("mb_uuid", "").strip()
-    release = get_release_by_id(mb_uuid) if mb_uuid else None
+    mb_error = None
+    try:
+        release = get_release_by_id(mb_uuid) if mb_uuid else None
+    except requests.exceptions.RequestException:
+        release = None
+        mb_error = MB_UNREACHABLE
     local_tracks, using_cue, single_flac = _stage_info(stage_path)
     track_rows = _compare_tracks(local_tracks, release["tracks"]) if release else []
     return render_template(
@@ -185,6 +204,7 @@ def apply_by_id():
         searched=False,
         apply_id_release=release,
         track_rows=track_rows,
+        mb_error=mb_error,
         local_tracks=local_tracks,
         using_cue=using_cue,
         single_flac=single_flac,

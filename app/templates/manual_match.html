@@ -161,6 +161,9 @@
       </div>
       {% endfor %}
 
+    {% elif mb_error %}
+      <div style="text-align:center;padding:40px;color:var(--red)">{{ mb_error }}</div>
+
     {% elif searched %}
       <div class="text-tertiary" style="text-align:center;padding:40px">No candidates found. Try refining your search terms.</div>
 

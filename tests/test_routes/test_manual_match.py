@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import requests
+
 MOCK_CANDIDATES = [
     {'id': 'uuid-1', 'title': 'Let It Be', 'artist': 'The Beatles', 'year': '2024',
      'country': 'GB', 'label': 'Apple Records', 'score': 97, 'tracks': [], 'track_count': 12},
@@ -197,3 +199,35 @@ def test_compare_tracks_strips_extension_before_normalise(tmp_path):
     statuses = {r['mb']: r['status'] for r in rows}
     assert statuses['At Last'] == 'match'
     assert statuses['All I Could Do Was Cry'] == 'match'
+
+
+# --- MusicBrainz unreachable ------------------------------------------------
+# A DNS/network fault used to reach Flask as an unhandled SSLError and return a
+# 500 with no clue what went wrong (2026-09-20). These pin the readable error.
+
+@patch('app.routes.manual_match.search_releases',
+       side_effect=requests.exceptions.ConnectionError('network is down'))
+def test_search_renders_error_when_musicbrainz_unreachable(mock_search, client):
+    resp = client.post('/manual-match/search',
+                       data={'stage_path': '/some/path', 'query': 'Beatles'})
+    assert resp.status_code == 200
+    assert b'MusicBrainz unreachable' in resp.data
+
+
+@patch('app.routes.manual_match.get_release_by_id',
+       side_effect=requests.exceptions.ConnectionError('network is down'))
+def test_apply_by_id_renders_error_when_musicbrainz_unreachable(mock_get, client):
+    resp = client.post('/manual-match/apply-by-id',
+                       data={'stage_path': '/some/path', 'mb_uuid': 'uuid-1'})
+    assert resp.status_code == 200
+    assert b'MusicBrainz unreachable' in resp.data
+
+
+@patch('app.routes.manual_match.search_releases',
+       side_effect=requests.exceptions.SSLError('tlsv1 alert internal error'))
+def test_search_handles_sslerror_the_original_2026_09_20_failure(mock_search, client):
+    """SSLError subclasses ConnectionError; it must not reach Flask as a 500."""
+    resp = client.post('/manual-match/search',
+                       data={'stage_path': '/some/path', 'query': 'fat dog'})
+    assert resp.status_code == 200
+    assert b'MusicBrainz unreachable' in resp.data
