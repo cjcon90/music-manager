@@ -224,16 +224,7 @@ def _parse_multi_file_cue(cue_path: Path, dirpath: Path) -> list[ProbeResult]:
             # use backslash as separator, which is a literal character on Linux.
             # Take just the basename so "SubDir\file.wav" resolves to "file.wav".
             raw_name = Path(m.group(1).replace("\\", "/")).name
-            candidate = dirpath / raw_name
-            if not candidate.exists():
-                # EAC writes .wav in the CUE even when encoding to FLAC.
-                # Try every known audio extension with the same stem.
-                stem = Path(raw_name).stem
-                candidate = next(
-                    (dirpath / f"{stem}{ext}" for ext in sorted(AUDIO_EXTS)
-                     if (dirpath / f"{stem}{ext}").exists()),
-                    candidate,
-                )
+            candidate = _resolve_cue_source(dirpath, raw_name)
             cur_section = {
                 "source_file": candidate if candidate.exists() else None,
                 "tracks": [],
@@ -295,6 +286,26 @@ def _parse_multi_file_cue(cue_path: Path, dirpath: Path) -> list[ProbeResult]:
     return results
 
 
+def _resolve_cue_source(dirpath: Path, name: str) -> Path:
+    """Find the audio file a CUE ``FILE`` line names; the bare path if none exists.
+
+    The name in the sheet often disagrees with the file on disk:
+    - EAC writes ``X.wav`` even when encoding to FLAC/APE → ``X.flac``
+    - some rippers append the real extension to the name instead → ``X.wav.ape``,
+      ``X.flac.flac`` (Krust *Coded Language*, Ornette Coleman *Shape of Jazz*)
+    """
+    exact = dirpath / name
+    if exact.exists():
+        return exact
+    stem = Path(name).stem
+    for base in (stem, name):
+        for ext in sorted(AUDIO_EXTS):
+            candidate = dirpath / f"{base}{ext}"
+            if candidate.exists():
+                return candidate
+    return exact
+
+
 def _parse_cue(cue_path: Path, dirpath: Path) -> ProbeResult:
     """Full CUE parse: extracts artist, album, year, track titles, timings, disc number."""
     content = _read_cue(cue_path)
@@ -311,15 +322,7 @@ def _parse_cue(cue_path: Path, dirpath: Path) -> ProbeResult:
 
         m = re.match(r'FILE\s+"(.+?)"\s+\S+', line, re.IGNORECASE)
         if m:
-            candidate = dirpath / m.group(1)
-            if not candidate.exists():
-                # EAC writes .wav in the CUE even when encoding to FLAC.
-                stem = Path(m.group(1)).stem
-                candidate = next(
-                    (dirpath / f"{stem}{ext}" for ext in sorted(AUDIO_EXTS)
-                     if (dirpath / f"{stem}{ext}").exists()),
-                    candidate,
-                )
+            candidate = _resolve_cue_source(dirpath, m.group(1))
             if candidate.exists():
                 source_file = candidate
 

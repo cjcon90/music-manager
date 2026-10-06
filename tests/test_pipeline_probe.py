@@ -142,3 +142,29 @@ def test_probe_flac_missing_year(tmp_path, silence_flac):
 def test_probe_flac_empty_dir(tmp_path):
     r = probe_flac(tmp_path)
     assert r == ProbeResult()
+
+
+_DOUBLE_EXT_CUE = """PERFORMER "Krust"
+TITLE "Coded Language"
+FILE "{name}" WAVE
+  TRACK 01 AUDIO
+    TITLE "Intro"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Coded Language"
+    INDEX 01 03:00:00
+"""
+
+
+@pytest.mark.parametrize("cue_name,on_disk", [
+    # Ripper appended the real extension to the name the CUE already had.
+    ("Krust - Coded Language.flac", "Krust - Coded Language.flac.flac"),
+    ("The Shape Of Jazz To Come.wav", "The Shape Of Jazz To Come.wav.ape"),
+])
+def test_probe_cue_double_extension_source(tmp_path, cue_name, on_disk):
+    d = tmp_path / "album"
+    d.mkdir()
+    (d / f"{cue_name}.cue").write_text(_DOUBLE_EXT_CUE.format(name=cue_name))
+    audio = d / on_disk
+    audio.touch()
+    assert probe_cue(d).source_file == audio
