@@ -1,6 +1,8 @@
 import os
 from unittest.mock import patch
 
+from app import staging
+
 NEW_LOG = (
     "2026-05-01 12:00:00 | nomatch | /media/music/.beet-stage/Beatles - Let It Be\n"
     "2026-05-02 09:30:00 | skipped | /media/downloads/complete/music/Humble Pie\n"
@@ -72,8 +74,10 @@ def test_failed_dismiss_uses_sidecar(client, tmp_path):
     dismissed_path = tmp_path / "import-failed-dismissed.log"
 
     full_line = "2026-05-01 12:00:00 | nomatch | /media/music/.beet-stage/Beatles - Let It Be"
+    stage = staging.create_stage("/media/music/.beet-stage/Beatles - Let It Be")
     resp = client.post("/failed/dismiss", data={"line": full_line})
     assert resp.status_code == 302
+    assert not stage.exists()
     # Original log is untouched
     assert "Let It Be" in log_path.read_text()
     # Sidecar records the full line

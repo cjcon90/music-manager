@@ -3,7 +3,7 @@ import os
 
 from flask import Blueprint, redirect, render_template, request, url_for
 
-from app import config
+from app import config, staging
 from app.queue_writer import write_queue_job
 from app.types import FailedEntry
 
@@ -103,6 +103,7 @@ def dismiss():
     line = request.form.get("line", "").strip()
     if line:
         _dismiss_line(line)
+        staging.delete_stage(line.split(" | ", 2)[-1].strip())
     return redirect(url_for("failed.index"))
 
 
