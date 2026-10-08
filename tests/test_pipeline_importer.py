@@ -37,9 +37,38 @@ def test_noautotag_success(mock_run):
     mock_run.return_value = _mock_run("/stage/album -> /media/music/Artist/Album\n")
     result = run_beet_import("/stage/album", mb_id=None)
     assert result.status == "imported"
-    cmd = mock_run.call_args[0][0]
+    cmd = mock_run.call_args_list[0][0][0]
     assert "--noautotag" in cmd
     assert "--search-id" not in cmd
+
+
+@patch("app.pipeline.importer.subprocess.run")
+def test_noautotag_success_writes_tags_to_files(mock_run):
+    """As-is imports never write tags, so lastgenre's genres would stay DB-only.
+
+    After a successful --noautotag import, the albums it added get `beet write`.
+    """
+    mock_run.return_value = _mock_run("/stage/album -> /media/music/Artist/Album\n")
+    run_beet_import("/stage/album", mb_id=None)
+    assert mock_run.call_count == 2
+    cmd = mock_run.call_args_list[1][0][0]
+    assert cmd[:2] == ["beet", "write"]
+    assert cmd[2].startswith("added:") and cmd[2].endswith("..")
+
+
+@patch("app.pipeline.importer.subprocess.run")
+def test_search_id_import_does_not_write_again(mock_run):
+    """--search-id imports apply metadata and write files themselves."""
+    mock_run.return_value = _mock_run("Importing /stage/album\nMatch (98.1%)\n")
+    run_beet_import("/stage/album", mb_id="mb-123")
+    assert mock_run.call_count == 1
+
+
+@patch("app.pipeline.importer.subprocess.run")
+def test_noautotag_duplicate_does_not_write(mock_run):
+    mock_run.return_value = _mock_run("No files imported\n")
+    run_beet_import("/stage/album", mb_id=None)
+    assert mock_run.call_count == 1
 
 
 @patch("app.pipeline.importer.subprocess.run")
@@ -119,7 +148,7 @@ def test_no_mb_id_does_not_use_config_overlay(mock_run):
     """Automatic imports (mb_id=None) must NOT load the config overlay."""
     mock_run.return_value = _mock_run("Importing /stage/album\n")
     run_beet_import("/stage/album", mb_id=None, move=False)
-    cmd = mock_run.call_args[0][0]
+    cmd = mock_run.call_args_list[0][0][0]
     assert "-c" not in cmd
 
 

@@ -3,6 +3,7 @@ import os
 import subprocess
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.config import BEETSDIR
 
@@ -95,6 +96,7 @@ def run_beet_import(
         cmd.append("--noautotag")
     cmd.append(path)
 
+    started = datetime.now()
     with _beet_lock:
         try:
             result = subprocess.run(
@@ -129,4 +131,22 @@ def run_beet_import(
             output="[beet silent failure — no output]",
         )
 
+    if not mb_id:
+        _write_tags_added_since(started)
     return ImportResult(status="imported", output=output)
+
+
+def _write_tags_added_since(started: datetime) -> None:
+    """Write DB tags into the files of albums added since *started*.
+
+    --noautotag imports never write tags, so genres set by lastgenre during the
+    import would otherwise exist only in the beets DB, not in the files Navidrome reads.
+    """
+    query = f"added:{started:%Y-%m-%dT%H:%M:%S}.."
+    try:
+        result = run_beet_command(["beet", "write", query], timeout=600, lock_timeout=600)
+    except BeetBusy:
+        log.error("beet write skipped for %s: beet lock busy", query)
+        return
+    if result.returncode != 0:
+        log.error("beet write failed for %s: %s", query, (result.stdout + result.stderr).strip())
