@@ -124,3 +124,48 @@ def test_split_creates_stage_dir(tmp_path, silence_flac):
         stage = tmp_path / "stage"
         split_cue_rip(tmp_path, stage, probe)
         assert stage.is_dir()
+
+
+# ---------------------------------------------------------------------------
+# check_split_source: refuse to split what would come out empty or garbage
+# ---------------------------------------------------------------------------
+
+def _iso_image(path: Path) -> Path:
+    """An ISO 9660 image: zeros at offset 0, CD001 at 0x8001 (Comus, Pentangle)."""
+    path.write_bytes(b"\x00" * 0x8001 + b"CD001" + b"\x00" * 2043)
+    return path
+
+
+def test_check_split_source_accepts_a_sheet_that_fits(tmp_path, silence_flac):
+    from app.pipeline.splitter import check_split_source
+
+    probe = ProbeResult(
+        **{**SIMPLE_PROBE.__dict__, "source_file": silence_flac, "timings": [0.0, 0.5]}
+    )
+    check_split_source(probe)
+
+
+def test_check_split_source_rejects_an_iso_image(tmp_path):
+    from app.pipeline.splitter import NotAudioError, check_split_source
+
+    src = _iso_image(tmp_path / "First Utterance.wv")
+    probe = ProbeResult(**{**SIMPLE_PROBE.__dict__, "source_file": src})
+    with pytest.raises(NotAudioError):
+        check_split_source(probe)
+
+
+def test_check_split_source_rejects_last_index_beyond_audio(tmp_path, silence_flac):
+    from app.pipeline.splitter import CueMismatchError, check_split_source
+
+    # silence_flac is 1s long; track 2 would start at 60s.
+    probe = ProbeResult(**{**SIMPLE_PROBE.__dict__, "source_file": silence_flac})
+    with pytest.raises(CueMismatchError):
+        check_split_source(probe)
+
+
+def test_check_split_source_rejects_a_sheet_with_no_tracks(tmp_path, silence_flac):
+    from app.pipeline.splitter import CueMismatchError, check_split_source
+
+    probe = ProbeResult(source_file=silence_flac, track_count=0, track_titles=[], timings=None)
+    with pytest.raises(CueMismatchError):
+        check_split_source(probe)

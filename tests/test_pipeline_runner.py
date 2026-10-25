@@ -57,7 +57,7 @@ def test_run_regular_no_match_uses_noautotag(mock_probe, mock_import, mock_mb, t
 @patch("app.pipeline.runner.find_best_release", return_value="mb-123")
 @patch("app.pipeline.runner.run_beet_import", return_value=ImportResult("imported", "Match (95%)\n"))
 @patch("app.pipeline.runner.split_cue_rip")
-@patch("app.pipeline.runner.probe_cue")
+@patch("app.pipeline.runner.probe_cue_file")
 def test_run_cue_match_deletes_stage(mock_probe, mock_split, mock_import, mock_mb, tmp_path):
     mock_probe.return_value = MagicMock(
         artist="A", album="B", track_count=2,
@@ -73,7 +73,7 @@ def test_run_cue_match_deletes_stage(mock_probe, mock_split, mock_import, mock_m
 @patch("app.pipeline.runner.find_best_release", return_value=None)
 @patch("app.pipeline.runner.run_beet_import", return_value=ImportResult("nomatch", "Skipping.\n"))
 @patch("app.pipeline.runner.split_cue_rip")
-@patch("app.pipeline.runner.probe_cue")
+@patch("app.pipeline.runner.probe_cue_file")
 def test_run_cue_nomatch_preserves_stage(mock_probe, mock_split, mock_import, mock_mb, tmp_path):
     mock_probe.return_value = MagicMock(
         artist="A", album="B", track_count=2,
@@ -92,7 +92,7 @@ def test_run_cue_nomatch_preserves_stage(mock_probe, mock_split, mock_import, mo
 @patch("app.pipeline.runner.find_best_release", return_value="mb-123")
 @patch("app.pipeline.runner.run_beet_import", return_value=ImportResult("imported", "Match (95%)\n"))
 @patch("app.pipeline.runner.split_cue_rip")
-@patch("app.pipeline.runner.probe_cue")
+@patch("app.pipeline.runner.probe_cue_file")
 def test_run_cue_reuses_existing_split(mock_probe, mock_split, mock_import, mock_mb, tmp_path):
     mock_probe.return_value = MagicMock(
         artist="A", album="B", track_count=2,
@@ -108,8 +108,8 @@ def test_run_cue_reuses_existing_split(mock_probe, mock_split, mock_import, mock
 
 
 @patch("app.pipeline.runner.split_cue_rip", side_effect=RuntimeError("encode error"))
-@patch("app.pipeline.runner.probe_cue")
-def test_run_cue_split_failure_logs_skipped(mock_probe, mock_split, tmp_path):
+@patch("app.pipeline.runner.probe_cue_file")
+def test_run_cue_split_failure_logs_split_failed(mock_probe, mock_split, tmp_path):
     mock_probe.return_value = MagicMock(
         artist="A", album="B", track_count=2,
         track_titles=["T1"], timings=[0.0], source_file=Path("/src/file.flac"),
@@ -117,7 +117,7 @@ def test_run_cue_split_failure_logs_skipped(mock_probe, mock_split, tmp_path):
     d = _make_cue(tmp_path)
     run(str(d))
     log = (tmp_path / "import-failed.log").read_text()
-    assert "skipped" in log
+    assert "| split-failed |" in log
 
 
 @patch("app.pipeline.runner.find_best_release", return_value="mb-123")
@@ -462,3 +462,158 @@ def test_partial_metadata_still_imports_via_noautotag(
 
     mock_import.assert_called_once()
     assert mock_import.call_args[1]["mb_id"] is None
+
+
+# ---------------------------------------------------------------------------
+# Single-file rips: CUE in a subfolder, FILE-line drift, and failures that say
+# why. Real files, so detector, probe and the pre-split check run for real.
+# ---------------------------------------------------------------------------
+
+_ONE_FILE_CUE = """PERFORMER "Night Sun"
+TITLE "Mournin'"
+FILE "{name}" WAVE
+  TRACK 01 AUDIO
+    TITLE "Plastic Shotgun"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Got a Bad Feeling"
+    INDEX 01 {last}
+"""
+
+
+def _single_file_rip(tmp_path, silence_flac, audio_name, cue_name, *, last="00:00:37"):
+    """One 1-second audio file plus a sheet in an audio-free subfolder."""
+    import shutil
+
+    d = tmp_path / "Night Sun - Mournin'"
+    (d / "log+cue").mkdir(parents=True)
+    shutil.copy(silence_flac, d / audio_name)
+    (d / "log+cue" / "Mournin'.cue").write_text(_ONE_FILE_CUE.format(name=cue_name, last=last))
+    return d
+
+
+_MATCHED = ImportResult("imported", "Match (95%)\n")
+
+
+@patch("app.pipeline.runner.find_best_release", return_value="mb-123")
+@patch("app.pipeline.runner.run_beet_import", return_value=_MATCHED)
+@patch("app.pipeline.runner.split_cue_rip")
+def test_cue_in_subfolder_with_file_extension_mismatch_splits_the_real_file(
+    mock_split, mock_import, mock_mb, tmp_path, silence_flac
+):
+    """The sheet says .wav; the rip was re-encoded. Split the file on disk, untouched."""
+    d = _single_file_rip(tmp_path, silence_flac, "Mournin'.flac", "Mournin'.wav")
+    run(str(d))
+    mock_split.assert_called_once()
+    source_dir, _, probe = mock_split.call_args[0]
+    assert source_dir == d
+    assert probe.source_file == d / "Mournin'.flac"
+    assert probe.track_titles == ["Plastic Shotgun", "Got a Bad Feeling"]
+
+
+@patch("app.pipeline.runner.find_best_release", return_value="mb-123")
+@patch("app.pipeline.runner.run_beet_import", return_value=_MATCHED)
+@patch("app.pipeline.runner.split_cue_rip")
+def test_file_line_naming_another_file_pairs_with_the_only_audio(
+    mock_split, mock_import, mock_mb, tmp_path, silence_flac
+):
+    d = _single_file_rip(tmp_path, silence_flac, "Night Sun - Mournin'.flac", "CDImage.wav")
+    run(str(d))
+    probe = mock_split.call_args[0][2]
+    assert probe.source_file == d / "Night Sun - Mournin'.flac"
+
+
+@patch("app.pipeline.runner.run_beet_import")
+@patch("app.pipeline.runner.split_cue_rip")
+def test_last_index_beyond_audio_fails_as_cue_mismatch(
+    mock_split, mock_import, tmp_path, silence_flac
+):
+    d = _single_file_rip(tmp_path, silence_flac, "Mournin'.flac", "Mournin'.flac", last="05:00:00")
+    run(str(d))
+    mock_split.assert_not_called()
+    mock_import.assert_not_called()
+    assert f"| cue-mismatch | {d}" in (tmp_path / "import-failed.log").read_text()
+
+
+@patch("app.pipeline.runner.run_beet_import")
+def test_iso_image_named_wv_fails_as_not_audio(mock_import, tmp_path, silence_flac):
+    d = _single_file_rip(tmp_path, silence_flac, "First Utterance.flac", "First Utterance.wv")
+    (d / "First Utterance.flac").unlink()
+    (d / "First Utterance.wv").write_bytes(b"\x00" * 0x8001 + b"CD001" + b"\x00" * 2043)
+    run(str(d))
+    mock_import.assert_not_called()
+    assert f"| not-audio | {d}" in (tmp_path / "import-failed.log").read_text()
+
+
+@patch("app.pipeline.runner.run_beet_import")
+def test_one_audio_two_sheets_fails_as_ambiguous_cue_listing_both(mock_import, tmp_path):
+    d = tmp_path / "album"
+    d.mkdir()
+    (d / "album.flac").touch()
+    for name, second in (("album.cue", "03:00:00"), ("album (vinyl).cue", "03:20:00")):
+        (d / name).write_text(
+            'FILE "album.flac" WAVE\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n'
+            f"  TRACK 02 AUDIO\n    INDEX 01 {second}\n"
+        )
+    run(str(d))
+    mock_import.assert_not_called()
+    assert f"| ambiguous-cue | {d}" in (tmp_path / "import-failed.log").read_text()
+    out = (tmp_path / "on-complete.log").read_text()
+    assert "album.cue" in out and "album (vinyl).cue" in out
+
+
+def test_single_audio_without_any_sheet_fails_as_no_cue(tmp_path):
+    d = tmp_path / "album"
+    d.mkdir()
+    (d / "album.wv").touch()
+    run(str(d))
+    assert f"| no-cue | {d}" in (tmp_path / "import-failed.log").read_text()
+
+
+# ---------------------------------------------------------------------------
+# Matcher miss: the album still imports as-is, but is flagged for review.
+# ---------------------------------------------------------------------------
+
+_UNMATCHED_ALBUM = {
+    "id": 1731, "album": "Pawn Hearts", "artist": "Van der Graaf Generator", "year": 1971,
+    "tracks": 3,
+    "path": "/data/music/Van der Graaf Generator/Pawn Hearts (1971)/01 - Lemmings.flac",
+    "artpath": None, "mb_albumid": "", "format": "FLAC",
+}
+
+
+@patch("app.pipeline.runner.subprocess.run")
+@patch("app.pipeline.runner.list_albums", return_value=[_UNMATCHED_ALBUM])
+@patch("app.pipeline.runner.find_best_release", return_value=None)
+@patch("app.pipeline.runner.run_beet_import", return_value=ImportResult("imported", ""))
+@patch("app.pipeline.runner.probe_flac")
+def test_unmatched_import_is_flagged_and_notified(
+    mock_probe, mock_import, mock_mb, mock_albums, mock_run, tmp_path
+):
+    mock_probe.return_value = MagicMock(
+        artist="Van der Graaf Generator", album="Pawn Hearts", track_count=3, track_titles=[]
+    )
+    run(str(_make_regular(tmp_path)))
+
+    assert mock_import.call_args[1]["mb_id"] is None
+    log = (tmp_path / "import-failed.log").read_text()
+    assert "| imported-unmatched | /data/music/Van der Graaf Generator/Pawn Hearts (1971)\n" in log
+    cmd = mock_run.call_args[0][0]
+    assert cmd[0] == "notify"
+    assert any(a.endswith("/album/1731/rematch") for a in cmd)
+    assert "Pawn Hearts" in cmd[-1]
+    assert mock_albums.call_args[0][0].startswith("added:")
+
+
+@patch("app.pipeline.runner.subprocess.run")
+@patch("app.pipeline.runner.list_albums", return_value=[_UNMATCHED_ALBUM])
+@patch("app.pipeline.runner.find_best_release", return_value="mb-123")
+@patch("app.pipeline.runner.run_beet_import", return_value=_MATCHED)
+@patch("app.pipeline.runner.probe_flac")
+def test_matched_import_is_not_flagged(
+    mock_probe, mock_import, mock_mb, mock_albums, mock_run, tmp_path
+):
+    mock_probe.return_value = MagicMock(artist="A", album="B", track_count=3, track_titles=[])
+    run(str(_make_regular(tmp_path)))
+    assert not (tmp_path / "import-failed.log").exists()
+    mock_run.assert_not_called()

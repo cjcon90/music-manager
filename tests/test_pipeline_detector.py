@@ -210,3 +210,102 @@ def test_eac_pregap_companion_cuesheet_detected_as_regular(tmp_path):
     jobs = find_import_jobs(album)
     assert len(jobs) == 1, f"expected 1 job, got {jobs}"
     assert isinstance(jobs[0], RegularJob), f"expected RegularJob, got {type(jobs[0]).__name__}"
+
+
+# ---------------------------------------------------------------------------
+# Single-file rips: finding the CUE sheet without ever guessing
+# ---------------------------------------------------------------------------
+
+def test_cue_in_audio_free_subfolder(tmp_path):
+    """Night Sun / King Crimson layout: the sheet sits in log+cue/ beside nothing but logs."""
+    album = tmp_path / "Night Sun - Mournin'"
+    _touch(album, "Mournin'.wv")
+    sheet = _touch(album, "log+cue/Mournin'.cue")
+    _touch(album, "log+cue/Mournin'.log")
+    jobs = find_import_jobs(album)
+    assert len(jobs) == 1
+    assert isinstance(jobs[0], CueRipJob)
+    assert jobs[0].path == album
+    assert jobs[0].cue == sheet
+
+
+def test_two_albums_in_one_download_stay_two_jobs(tmp_path):
+    """Tim Maia Racional: Vol. 1/ and Vol. 2/ each hold their own .flac + .cue."""
+    root = tmp_path / "Tim Maia - Racional"
+    for vol in ("Vol. 1", "Vol. 2"):
+        _touch(root, f"{vol}/Racional {vol}.flac")
+        _touch(root, f"{vol}/Racional {vol}.cue")
+    jobs = find_import_jobs(root)
+    assert sorted(j.path.name for j in jobs) == ["Vol. 1", "Vol. 2"]
+    assert all(isinstance(j, CueRipJob) for j in jobs)
+    assert all(j.cue.parent == j.path for j in jobs)
+
+
+def _sheet(path: Path, file_name: str, second_index: str, title: str = "Two") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'FILE "{file_name}" WAVE\n'
+        '  TRACK 01 AUDIO\n    TITLE "One"\n    INDEX 01 00:00:00\n'
+        f'  TRACK 02 AUDIO\n    TITLE "{title}"\n    INDEX 01 {second_index}\n'
+    )
+    return path
+
+
+def test_one_audio_two_sheets_is_ambiguous(tmp_path):
+    from app.pipeline.detector import AmbiguousCueJob
+
+    album = tmp_path / "album"
+    _touch(album, "album.flac")
+    a = _sheet(album / "album.cue", "album.flac", "03:00:00")
+    b = _sheet(album / "album (alt).cue", "album.flac", "03:12:40")
+    jobs = find_import_jobs(album)
+    assert len(jobs) == 1
+    assert isinstance(jobs[0], AmbiguousCueJob)
+    assert sorted(jobs[0].sheets) == sorted([a, b])
+
+
+def test_sheets_across_subfolders_are_ambiguous(tmp_path):
+    from app.pipeline.detector import AmbiguousCueJob
+
+    album = tmp_path / "album"
+    _touch(album, "album.wv")
+    _sheet(album / "cue" / "album.cue", "album.wv", "03:00:00")
+    _sheet(album / "eac" / "album.cue", "album.wv", "04:00:00")
+    jobs = find_import_jobs(album)
+    assert len(jobs) == 1
+    assert isinstance(jobs[0], AmbiguousCueJob)
+    assert len(jobs[0].sheets) == 2
+
+
+def test_sheets_with_the_same_split_count_as_one(tmp_path):
+    """X.cue + X.flac.cue: same timings, same audio, only FILE line and titles differ."""
+    album = tmp_path / "Death - Symbolic"
+    _touch(album, "Symbolic.flac")
+    _sheet(album / "Symbolic.wav.cue", "Symbolic.wav", "03:00:00", title="Zero Tolerance")
+    _sheet(album / "Symbolic.flac.cue", "Symbolic.flac", "03:00:00", title="ZERO TOLERANCE")
+    jobs = find_import_jobs(album)
+    assert len(jobs) == 1
+    assert isinstance(jobs[0], CueRipJob)
+
+
+def test_same_timings_naming_different_audio_stay_ambiguous(tmp_path):
+    from app.pipeline.detector import AmbiguousCueJob
+
+    album = tmp_path / "album"
+    _touch(album, "album.flac")
+    _sheet(album / "album.cue", "album.flac", "03:00:00")
+    _sheet(album / "bonus.cue", "bonus disc.flac", "03:00:00")
+    jobs = find_import_jobs(album)
+    assert isinstance(jobs[0], AmbiguousCueJob)
+
+
+def test_subfolder_search_skipped_when_a_subfolder_has_audio(tmp_path):
+    """A sheet beside other audio belongs to that audio, never to the parent's file."""
+    album = tmp_path / "album"
+    _touch(album, "hidden track.flac")
+    _touch(album, "extra/extra.flac")
+    _touch(album, "extra/extra.cue")
+    jobs = find_import_jobs(album)
+    assert len(jobs) == 1
+    assert isinstance(jobs[0], CueRipJob)
+    assert jobs[0].path == album / "extra"

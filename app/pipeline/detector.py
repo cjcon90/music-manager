@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.pipeline import AUDIO_EXTS, DISC_PATTERN
-from app.pipeline.probe import count_cue_files, cue_has_multiple_tracks_per_file
+from app.pipeline.probe import count_cue_files, cue_has_multiple_tracks_per_file, probe_cue_file
 
 MAX_WALK_DEPTH = 10
 
@@ -12,7 +12,16 @@ MAX_WALK_DEPTH = 10
 @dataclass
 class CueRipJob:
     path: Path
+    cue: Path
     kind: str = field(default="cue_rip", init=False)
+
+
+@dataclass
+class AmbiguousCueJob:
+    """One audio file but several candidate sheets: fail rather than pick one."""
+    path: Path
+    sheets: list[Path]
+    kind: str = field(default="ambiguous_cue", init=False)
 
 
 @dataclass
@@ -39,7 +48,9 @@ class MultiDiscJob:
     kind: str = field(default="multi_disc", init=False)
 
 
-ImportJob = CueRipJob | MultiCueRipJob | MultiFileCueJob | RegularJob | MultiDiscJob
+ImportJob = (
+    CueRipJob | AmbiguousCueJob | MultiCueRipJob | MultiFileCueJob | RegularJob | MultiDiscJob
+)
 
 
 def find_import_jobs(root: Path) -> list[ImportJob]:
@@ -50,8 +61,9 @@ def find_import_jobs(root: Path) -> list[ImportJob]:
             dirnames.clear()
             continue
         dp = Path(dirpath)
-        if _is_cue_rip(filenames):
-            jobs.append(CueRipJob(dp))
+        cue_job = _single_file_cue_job(dp, filenames, dirnames)
+        if cue_job:
+            jobs.append(cue_job)
             dirnames.clear()
         elif _is_multi_cue_rip(filenames):
             jobs.append(MultiCueRipJob(dp))
@@ -72,10 +84,43 @@ def _audio_files(filenames: list[str]) -> list[str]:
     return [f for f in filenames if Path(f).suffix.lower() in AUDIO_EXTS]
 
 
-def _is_cue_rip(filenames: list[str]) -> bool:
-    audio = _audio_files(filenames)
-    cue = [f for f in filenames if f.lower().endswith(".cue")]
-    return len(audio) == 1 and len(cue) >= 1
+def _sheets(paths: list[Path]) -> list[Path]:
+    """CUE sheets among *paths*; ISRC sheets only when there is nothing else."""
+    cues = [p for p in paths if p.suffix.lower() == ".cue"]
+    return [p for p in cues if "isrc" not in p.name.lower()] or cues
+
+
+def _single_file_cue_job(dp: Path, filenames: list[str], dirnames: list[str]) -> ImportJob | None:
+    """Pair a lone audio file with the one sheet beside it, or in audio-free subfolders.
+
+    A wrong pairing is worse than a failed import, so sheets that would split
+    differently are an AmbiguousCueJob, never a guess. Sheets with the same
+    INDEX timings naming the same audio file (X.cue + X.flac.cue) split
+    identically, so they count as one; their titles may differ.
+    """
+    if len(_audio_files(filenames)) != 1:
+        return None
+    sheets = _sheets([dp / f for f in filenames]) or _subfolder_sheets(dp, dirnames)
+    if not sheets:
+        return None
+    splits: dict[tuple[tuple[float, ...], Path | None], Path] = {}
+    for s in sheets:
+        p = probe_cue_file(dp, s)
+        splits.setdefault((tuple(p.timings or ()), p.source_file), s)
+    if len(splits) > 1:
+        return AmbiguousCueJob(dp, sheets)
+    return CueRipJob(dp, next(iter(splits.values())))
+
+
+def _subfolder_sheets(dp: Path, dirnames: list[str]) -> list[Path]:
+    """Sheets below dp (log+cue/, cover,eac,cue/), but none if any subfolder holds audio."""
+    found: list[Path] = []
+    for d in dirnames:
+        for sub, _, files in os.walk(dp / d, followlinks=False):
+            if _audio_files(files):
+                return []
+            found += [Path(sub) / f for f in files]
+    return _sheets(found)
 
 
 def _is_multi_cue_rip(filenames: list[str]) -> bool:

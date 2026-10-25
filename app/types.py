@@ -36,8 +36,9 @@ class FailedEntry(TypedDict):
     ts: str
     path: str
     name: str
-    kind: str  # 'nomatch' | 'skipped' | 'error'
+    kind: str  # 'nomatch' | 'skipped' | 'error' | 'blank-metadata' | 'split-failed' | ...
     line: str  # full original log line, used as dismiss key
+    album_id: NotRequired[int | None]  # imported-unmatched only: the library album to rematch
 
 
 class QueuedPath(TypedDict):

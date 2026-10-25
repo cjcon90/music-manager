@@ -1,6 +1,8 @@
 import os
 from unittest.mock import patch
 
+import pytest
+
 from app import staging
 
 NEW_LOG = (
@@ -251,3 +253,34 @@ def test_blank_metadata_entry_says_the_files_have_no_tags(client, tmp_path):
     resp = client.get("/failed")
 
     assert b"no tags" in resp.data
+
+
+@pytest.mark.parametrize("kind,label", [
+    ("not-audio", b"not audio"),
+    ("no-cue", b"no CUE sheet"),
+    ("split-failed", b"split failed"),
+    ("ambiguous-cue", b"several CUE sheets"),
+    ("cue-mismatch", b"CUE doesn"),
+    ("imported-unmatched", b"imported without a match"),
+])
+def test_failure_kinds_say_why(client, tmp_path, kind, label):
+    import app.config as cfg
+
+    line = f"2026-10-04 12:00:00 | {kind} | /media/downloads/complete/music/Comus\n"
+    _setup(cfg, tmp_path, content=line)
+    with patch("app.routes.failed.list_albums", return_value=[]):
+        resp = client.get("/failed")
+    assert label in resp.data
+    assert b"no match" not in resp.data
+
+
+def test_imported_unmatched_links_to_the_library_rematch(client, tmp_path):
+    import app.config as cfg
+
+    album_dir = "/data/music/Van der Graaf Generator/Pawn Hearts (1971)"
+    _setup(cfg, tmp_path, content=f"2026-10-24 21:00:00 | imported-unmatched | {album_dir}\n")
+    album = {"id": 1731, "path": f"{album_dir}/01 - Lemmings.flac"}
+    with patch("app.routes.failed.list_albums", return_value=[album]):
+        resp = client.get("/failed")
+    assert b"/manual-match?album_id=1731" in resp.data
+    assert b"stage_path=" not in resp.data

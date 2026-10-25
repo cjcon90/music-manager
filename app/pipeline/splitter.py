@@ -4,6 +4,52 @@ from pathlib import Path
 
 from app.pipeline.probe import ProbeResult, probe_cue
 
+# Leading bytes of every format in AUDIO_EXTS. An ISO 9660 image renamed .wv
+# (Comus, Pentangle) starts with zeros and matches none of them.
+_AUDIO_MAGIC = (
+    b"fLaC", b"wvpk", b"MAC ", b"RIFF", b"RF64", b"OggS", b"FORM", b"DSD ", b"FRM8", b"ID3",
+)
+
+
+class SplitCheckError(Exception):
+    """The source can't be split as the sheet describes; *kind* goes to the failed log."""
+    kind = "split-failed"
+
+
+class NotAudioError(SplitCheckError):
+    kind = "not-audio"
+
+
+class CueMismatchError(SplitCheckError):
+    kind = "cue-mismatch"
+
+
+def check_split_source(probe: ProbeResult) -> None:
+    """Refuse a split that would produce garbage, truncated or empty tracks.
+
+    A missing source is left for split_cue_rip to report.
+    """
+    src = probe.source_file
+    if src is None or not src.exists():
+        return
+    with open(src, "rb") as f:
+        head = f.read(12)
+    is_mp3 = len(head) > 1 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0
+    if not (head.startswith(_AUDIO_MAGIC) or head[4:8] == b"ftyp" or is_mp3):
+        raise NotAudioError(f"{src.name} is not audio — redownload from a different source")
+    timings = probe.timings
+    if not timings or not 1 <= len(timings) <= 99 or len(timings) != probe.track_count:
+        raise CueMismatchError(f"sheet has {probe.track_count} tracks, INDEX 01 times incomplete")
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(src)],
+        capture_output=True, text=True, timeout=300,
+    )
+    duration = float(result.stdout.strip())
+    if timings[-1] >= duration:
+        raise CueMismatchError(
+            f"last track starts at {timings[-1]:.0f}s but {src.name} is {duration:.0f}s long"
+        )
+
 
 def split_cue_rip(source_dir: Path, stage_dir: Path, probe: ProbeResult | None = None) -> None:
     """Split a single audio file into individual tracks using CUE timings, writing to stage_dir."""

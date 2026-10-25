@@ -33,22 +33,37 @@
       {%- if entry.kind == 'skipped' %}#f59e0b
       {%- elif entry.kind == 'error' %}#f87171
       {%- elif entry.kind == 'blank-metadata' %}#a78bfa
+      {%- elif entry.kind == 'not-audio' %}#f87171
+      {%- elif entry.kind in ('no-cue', 'ambiguous-cue', 'cue-mismatch', 'split-failed') %}#f59e0b
+      {%- elif entry.kind == 'imported-unmatched' %}#7ec8e3
       {%- else %}#ff6464{% endif %}"></span>
     <span style="flex:1;font-weight:500">{{ entry.name }}</span>
     <span style="font-size:10px;opacity:0.5">
       {%- if entry.kind == 'skipped' %}skipped
       {%- elif entry.kind == 'error' %}pipeline error
       {%- elif entry.kind == 'blank-metadata' %}no tags — pick a release
+      {%- elif entry.kind == 'not-audio' %}not audio — redownload, different source
+      {%- elif entry.kind == 'no-cue' %}one big file, no CUE sheet found
+      {%- elif entry.kind == 'ambiguous-cue' %}several CUE sheets — won't guess
+      {%- elif entry.kind == 'cue-mismatch' %}CUE doesn't fit the audio
+      {%- elif entry.kind == 'split-failed' %}CUE split failed
+      {%- elif entry.kind == 'imported-unmatched' %}imported without a match — pick a release
       {%- else %}no match{% endif -%}
     </span>
-    {% if entry.kind in ('skipped', 'error') %}
+    {% if entry.kind in ('skipped', 'error', 'split-failed') %}
     <form method="post" action="{{ url_for('failed.requeue') }}" style="margin:0">
       <input type="hidden" name="path" value="{{ entry.path }}">
       <input type="hidden" name="line" value="{{ entry.line }}">
       <button type="submit" class="btn btn-secondary" style="padding:3px 10px;font-size:11px;color:#7ec8e3">re-queue</button>
     </form>
     {% endif %}
+    {% if entry.kind == 'imported-unmatched' %}
+    {% if entry.album_id %}
+    <a href="{{ url_for('manual_match.index', album_id=entry.album_id) }}" class="btn btn-secondary" style="padding:3px 10px;font-size:11px;color:#7ec8e3">rematch</a>
+    {% endif %}
+    {% else %}
     <a href="{{ url_for('manual_match.index', stage_path=entry.path) }}" class="btn btn-secondary" style="padding:3px 10px;font-size:11px;color:#7ec8e3">manual match</a>
+    {% endif %}
     <form method="post" action="{{ url_for('failed.dismiss') }}" style="margin:0">
       <input type="hidden" name="line" value="{{ entry.line }}">
       <button type="submit" class="btn btn-secondary" style="padding:3px 10px;font-size:11px;opacity:0.4">dismiss</button>

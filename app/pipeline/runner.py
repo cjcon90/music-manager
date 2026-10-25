@@ -1,11 +1,16 @@
 import logging
+import os
+import subprocess
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from app import config, staging
+from app.beets_api import list_albums
 from app.pipeline import AUDIO_EXTS, DISC_PATTERN
 from app.pipeline.detector import (
+    AmbiguousCueJob,
     CueRipJob,
     MultiCueRipJob,
     MultiDiscJob,
@@ -19,8 +24,15 @@ from app.pipeline.detector import (
 )
 from app.pipeline.importer import ImportResult, run_beet_command, run_beet_import
 from app.pipeline.matcher import find_best_release
-from app.pipeline.probe import ProbeResult, probe_cue, probe_cue_file, probe_flac, probe_multi_file_cue
-from app.pipeline.splitter import split_cue_rip
+from app.pipeline.probe import (
+    ProbeResult,
+    count_cue_files,
+    probe_cue,
+    probe_cue_file,
+    probe_flac,
+    probe_multi_file_cue,
+)
+from app.pipeline.splitter import SplitCheckError, check_split_source, split_cue_rip
 
 log = logging.getLogger(__name__)
 
@@ -116,13 +128,19 @@ def run(
         jobs = find_import_jobs(root)
         if not jobs:
             log.warning("No importable albums found in %s", path)
-            _log_beet_output("Skipped (no audio found)\n")
-            log_failed(path, "skipped")
+            if _has_audio(root):
+                _log_beet_output("Skipped (single audio file, no CUE sheet found)\n")
+                log_failed(path, "no-cue")
+            else:
+                _log_beet_output("Skipped (no audio found)\n")
+                log_failed(path, "skipped")
             return
 
         for job in jobs:
             if isinstance(job, CueRipJob):
                 statuses.append(_process_cue_rip(job, ctx))
+            elif isinstance(job, AmbiguousCueJob):
+                statuses.append(_process_ambiguous_cue(job))
             elif isinstance(job, MultiCueRipJob):
                 statuses.append(_process_multi_cue_rip(job, ctx))
             elif isinstance(job, MultiFileCueJob):
@@ -141,20 +159,38 @@ def run(
 
 def _process_cue_rip(job: CueRipJob, ctx: ImportContext) -> str:
     stage_dir = staging.create_stage(str(job.path))
-    probe = probe_cue(job.path)
+    probe = probe_cue_file(job.path, job.cue)
+
+    # The sheet names a file that isn't here (renamed rip, "CDImage.wav"). The
+    # detector guarantees exactly one audio file and one sheet, so a one-FILE
+    # sheet can only mean that file.
+    if probe.source_file is None and count_cue_files(job.cue) == 1:
+        audio = next(
+            f for f in job.path.iterdir() if f.is_file() and f.suffix.lower() in AUDIO_EXTS
+        )
+        log.warning(
+            "%s names a file not in %s; pairing with the only audio file, %s",
+            job.cue, job.path, audio.name,
+        )
+        probe.source_file = audio
 
     if not list(stage_dir.glob("*.flac")):
-        try:
-            split_cue_rip(job.path, stage_dir, probe)
-        except Exception as e:
-            log.error("Split failed for %s: %s", job.path, e)
-            log_failed(str(job.path), "skipped")
+        kind = _split(job.path, stage_dir, probe)
+        if kind:
+            log_failed(str(job.path), kind)
             staging.delete_stage(str(job.path))
-            return "skipped"
+            return kind
 
     mb_id = _resolve_mb_id(ctx, probe)
-    result = run_beet_import(str(stage_dir), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
-    return _handle_result(result, ctx.source_path, str(job.path))
+    return _import(str(stage_dir), mb_id, ctx, str(job.path))
+
+
+def _process_ambiguous_cue(job: AmbiguousCueJob) -> str:
+    found = ", ".join(str(s.relative_to(job.path)) for s in job.sheets)
+    log.warning("Several CUE sheets for one audio file in %s: %s", job.path, found)
+    _log_beet_output(f"Skipped (ambiguous CUE, found: {found})\n")
+    log_failed(str(job.path), "ambiguous-cue")
+    return "ambiguous-cue"
 
 
 def _process_multi_cue_rip(job: MultiCueRipJob, ctx: ImportContext) -> str:
@@ -163,8 +199,8 @@ def _process_multi_cue_rip(job: MultiCueRipJob, ctx: ImportContext) -> str:
         if f.suffix.lower() == ".cue" and "isrc" not in f.name.lower()
     )
     if not cue_files:
-        log_failed(str(job.path), "skipped")
-        return "skipped"
+        log_failed(str(job.path), "split-failed")
+        return "split-failed"
 
     stage_root = staging.create_stage(str(job.path))
     all_titles: list[str] = []
@@ -177,26 +213,23 @@ def _process_multi_cue_rip(job: MultiCueRipJob, ctx: ImportContext) -> str:
         all_titles.extend(disc_probe.track_titles)
         disc_dir = stage_root / f"CD{i}"
         if not (disc_dir.exists() and list(disc_dir.glob("*.flac"))):
-            try:
-                split_cue_rip(job.path, disc_dir, disc_probe)
-            except Exception as e:
-                log.error("Split failed for %s disc %d: %s", job.path, i, e)
-                log_failed(str(job.path), "skipped")
+            kind = _split(job.path, disc_dir, disc_probe)
+            if kind:
+                log_failed(str(job.path), kind)
                 staging.delete_stage(str(job.path))
-                return "skipped"
+                return kind
 
     combined = _merge_probes(first_probe, all_titles)
     mb_id = _resolve_mb_id(ctx, combined)
-    result = run_beet_import(str(stage_root), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
-    return _handle_result(result, ctx.source_path, str(job.path))
+    return _import(str(stage_root), mb_id, ctx, str(job.path))
 
 
 def _process_multi_file_cue(job: MultiFileCueJob, ctx: ImportContext) -> str:
     sections = probe_multi_file_cue(job.path)
     if not sections:
         log.warning("No sections found in multi-file CUE for %s", job.path)
-        log_failed(str(job.path), "skipped")
-        return "skipped"
+        log_failed(str(job.path), "split-failed")
+        return "split-failed"
 
     stage_dir = staging.create_stage(str(job.path))
     all_titles: list[str] = []
@@ -207,19 +240,16 @@ def _process_multi_file_cue(job: MultiFileCueJob, ctx: ImportContext) -> str:
         if list(stage_dir.glob(f"{first_num:02d} - *.flac")):
             all_titles.extend(section.track_titles)
             continue
-        try:
-            split_cue_rip(job.path, stage_dir, section)
-        except Exception as e:
-            log.error("Split failed for %s (%s): %s", job.path, section.source_file, e)
-            log_failed(str(job.path), "skipped")
+        kind = _split(job.path, stage_dir, section)
+        if kind:
+            log_failed(str(job.path), kind)
             staging.delete_stage(str(job.path))
-            return "skipped"
+            return kind
         all_titles.extend(section.track_titles)
 
     combined = _merge_probes(first, all_titles)
     mb_id = _resolve_mb_id(ctx, combined)
-    result = run_beet_import(str(stage_dir), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
-    return _handle_result(result, ctx.source_path, str(job.path))
+    return _import(str(stage_dir), mb_id, ctx, str(job.path))
 
 
 def _process_regular(job: RegularJob, ctx: ImportContext) -> str:
@@ -254,8 +284,7 @@ def _process_regular(job: RegularJob, ctx: ImportContext) -> str:
         log_failed(str(job.path), "blank-metadata")
         return "blank-metadata"
 
-    result = run_beet_import(str(job.path), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
-    return _handle_result(result, ctx.source_path, str(job.path))
+    return _import(str(job.path), mb_id, ctx, str(job.path))
 
 
 def _process_multi_disc(job: MultiDiscJob, ctx: ImportContext) -> str:
@@ -275,8 +304,7 @@ def _process_multi_disc(job: MultiDiscJob, ctx: ImportContext) -> str:
             all_titles.extend(p.track_titles)
         combined = _merge_probes(first_probe, all_titles)
         mb_id = _resolve_mb_id(ctx, combined)
-        result = run_beet_import(str(job.path), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
-        return _handle_result(result, ctx.source_path, str(job.path))
+        return _import(str(job.path), mb_id, ctx, str(job.path))
 
     stage_root = staging.create_stage(str(job.path))
     all_titles = []
@@ -289,18 +317,15 @@ def _process_multi_disc(job: MultiDiscJob, ctx: ImportContext) -> str:
         all_titles.extend(disc_probe.track_titles)
         stage_disc = stage_root / disc_dir.name
         if not (stage_disc.exists() and list(stage_disc.glob("*.flac"))):
-            try:
-                split_cue_rip(disc_dir, stage_disc, disc_probe)
-            except Exception as e:
-                log.error("Split failed for %s: %s", disc_dir, e)
-                log_failed(str(job.path), "skipped")
+            kind = _split(disc_dir, stage_disc, disc_probe)
+            if kind:
+                log_failed(str(job.path), kind)
                 staging.delete_stage(str(job.path))
-                return "skipped"
+                return kind
 
     combined = _merge_probes(first_probe, all_titles)
     mb_id = _resolve_mb_id(ctx, combined)
-    result = run_beet_import(str(stage_root), mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
-    return _handle_result(result, ctx.source_path, str(job.path))
+    return _import(str(stage_root), mb_id, ctx, str(job.path))
 
 
 def _handle_result(result: ImportResult, source_path: str, album_path: str) -> str:
@@ -311,6 +336,57 @@ def _handle_result(result: ImportResult, source_path: str, album_path: str) -> s
         kind = "nomatch" if result.status == "nomatch" else "skipped"
         log_failed(album_path, kind)
     return result.status
+
+
+def _split(source_dir: Path, stage_dir: Path, probe: ProbeResult) -> str | None:
+    """Check the source, then split it. Returns the failure kind, or None on success."""
+    try:
+        check_split_source(probe)
+        split_cue_rip(source_dir, stage_dir, probe)
+    except Exception as e:
+        log.error("Split failed for %s: %s", source_dir, e)
+        return e.kind if isinstance(e, SplitCheckError) else "split-failed"
+    return None
+
+
+def _import(path: str, mb_id: str | None, ctx: ImportContext, album_path: str) -> str:
+    """Import *path*; flag the result for review when no release was matched."""
+    started = datetime.now()
+    result = run_beet_import(path, mb_id=mb_id, noincremental=ctx.noincremental, move=ctx.move)
+    status = _handle_result(result, ctx.source_path, album_path)
+    if status == "imported" and mb_id is None:
+        _flag_unmatched(started)
+    return status
+
+
+def _flag_unmatched(started: datetime) -> None:
+    """List as-is imports in the Failed tab and push a link to their rematch page.
+
+    The import is kept: the files are fine, the user usually just picks the release.
+    """
+    for album in list_albums(f"added:{started:%Y-%m-%dT%H:%M:%S}.."):
+        if not album["path"]:
+            continue
+        log_failed(str(Path(album["path"]).parent), "imported-unmatched")
+        url = f"{config.PUBLIC_URL}/album/{album['id']}/rematch"
+        message = (
+            f"{album['artist']} - {album['album']}: no MusicBrainz match, imported as-is. "
+            "Tap to pick the release."
+        )
+        try:
+            subprocess.run(
+                ["notify", "-t", "cd", "-c", url, "default", "Imported without a match", message]
+            )
+        except OSError as e:
+            log.warning("notify failed: %s", e)
+
+
+def _has_audio(root: Path) -> bool:
+    return any(
+        Path(f).suffix.lower() in AUDIO_EXTS
+        for _, _, files in os.walk(root, followlinks=False)
+        for f in files
+    )
 
 
 def _log_processing(path: str) -> None:
@@ -411,13 +487,11 @@ def _process_multi_disc_cue_override(
         disc_probe = probe_cue(disc_dir)
         stage_disc = stage_root / f"CD {i:02d}"
         if not (stage_disc.exists() and list(stage_disc.glob("*.flac"))):
-            try:
-                split_cue_rip(disc_dir, stage_disc, disc_probe)
-            except Exception as e:
-                log.error("Split failed for %s: %s", disc_dir, e)
-                log_failed(ctx.source_path, "skipped")
+            kind = _split(disc_dir, stage_disc, disc_probe)
+            if kind:
+                log_failed(ctx.source_path, kind)
                 staging.delete_stage(ctx.source_path)
-                return "skipped"
+                return kind
 
     result = run_beet_import(str(stage_root), mb_id=ctx.mb_id_override, noincremental=ctx.noincremental, move=ctx.move)
     return _handle_result(result, ctx.source_path, ctx.source_path)

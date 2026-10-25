@@ -18,3 +18,6 @@ MB_USER_AGENT = f"music-manager/1.0 ( {MB_CONTACT} )"
 MUSIC_LIBRARY_DIR = os.environ.get("MUSIC_LIBRARY_DIR", "/media/music")
 IMPORT_BASE_DIR = os.environ.get("IMPORT_BASE_DIR", "/media/downloads/complete/music")
 IMPORT_STAGE_DIR = os.environ.get("IMPORT_STAGE_DIR", "/media/import-stage")
+
+# Base of the links in push notifications, which open outside the app.
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://music-manager.cjcon90.dev")

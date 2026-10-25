@@ -168,3 +168,18 @@ def test_fix_art_skips_clear_when_no_pictures(mock_tracks, mock_flac_cls, mock_r
     assert resp.status_code == 200
     mock_audio.clear_pictures.assert_not_called()
     mock_audio.save.assert_not_called()
+
+
+def test_queue_rematch_dismisses_the_unmatched_entry(client, tmp_path):
+    import app.config as cfg
+
+    album_dir = f"{cfg.MUSIC_LIBRARY_DIR}/Van der Graaf Generator/Pawn Hearts (1971)"
+    line = f"2026-10-24 21:00:00 | imported-unmatched | {album_dir}"
+    (tmp_path / "import-failed.log").write_text(line + "\n")
+    album = {**_BASE_ALBUM, "id": 1731, "path": f"{album_dir}/01 - Lemmings.flac"}
+    with patch("app.routes.album.get_album_by_id", return_value=album):
+        resp = client.post(
+            "/album/1731/queue-rematch", data={"mb_uuid": "c6d1b1f8-0e5e-3d8c-a0a4-6a0cd3d2a1b7"}
+        )
+    assert resp.status_code == 200
+    assert line in (tmp_path / "import-failed-dismissed.log").read_text()

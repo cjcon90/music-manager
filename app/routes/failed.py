@@ -1,9 +1,11 @@
 import fcntl
 import os
+from pathlib import Path
 
 from flask import Blueprint, redirect, render_template, request, url_for
 
 from app import config, staging
+from app.beets_api import list_albums
 from app.queue_writer import write_queue_job
 from app.types import FailedEntry
 
@@ -93,6 +95,12 @@ def index() -> str:
         entries = [e for e in all_entries if e["kind"] == filter_type]
     else:
         entries = all_entries
+    unmatched = [e for e in entries if e["kind"] == "imported-unmatched"]
+    if unmatched:
+        # Logged by album directory, the same way queue_rematch derives it.
+        ids = {str(Path(a["path"]).parent): a["id"] for a in list_albums() if a["path"]}
+        for e in unmatched:
+            e["album_id"] = ids.get(e["path"])
     return render_template(
         "failed.html", entries=entries, counts=counts, active_filter=filter_type
     )

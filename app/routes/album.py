@@ -7,6 +7,7 @@ from app.artcache import get_thumb
 from app.beets_api import get_album_by_id, get_album_tracks
 from app.pipeline.importer import BeetBusy, run_beet_command
 from app.queue_writer import write_queue_job
+from app.routes.failed import dismiss_failed_entry
 from mutagen.flac import FLAC
 
 bp = Blueprint("album", __name__)
@@ -97,4 +98,5 @@ def queue_rematch(album_id: int) -> ResponseReturnValue:
 
     album_path = str(Path(album["path"]).parent)
     write_queue_job(album_path, noincremental=True, search_id=mb_uuid, move=True, prefix="rematch")
+    dismiss_failed_entry(album_path)
     return jsonify({"ok": True})
