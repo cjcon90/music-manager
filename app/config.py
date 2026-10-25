@@ -19,5 +19,9 @@ MUSIC_LIBRARY_DIR = os.environ.get("MUSIC_LIBRARY_DIR", "/media/music")
 IMPORT_BASE_DIR = os.environ.get("IMPORT_BASE_DIR", "/media/downloads/complete/music")
 IMPORT_STAGE_DIR = os.environ.get("IMPORT_STAGE_DIR", "/media/import-stage")
 
+SECRET_KEY = os.environ.get("SECRET_KEY")
+AUTH_USERNAME = os.environ.get("AUTH_USERNAME", "cjcon90")
+AUTH_PASSWORD_HASH = os.environ.get("AUTH_PASSWORD_HASH", "")
+
 # Base of the links in push notifications, which open outside the app.
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://music-manager.cjcon90.dev")

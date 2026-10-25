@@ -11,6 +11,13 @@ def create_app() -> Flask:
 
     from app import config as _cfg
 
+    app.config.update(
+        SECRET_KEY=_cfg.SECRET_KEY,
+        PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=30),
+        SESSION_COOKIE_SECURE=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+    )
+
     if not os.path.exists(_cfg.BEETS_DB_PATH):
         _log.warning("Beets database not found at %s — check volume mount", _cfg.BEETS_DB_PATH)
 
@@ -18,6 +25,7 @@ def create_app() -> Flask:
 
     cleanup_stale_lock()
 
+    from app.auth import bp as auth_bp
     from app.routes.browse import bp as browse_bp
     from app.routes.album import bp as album_bp
     from app.routes.failed import bp as failed_bp
@@ -27,6 +35,7 @@ def create_app() -> Flask:
     from app.routes.remove import bp as remove_bp
     from app.routes.wishlist import bp as wishlist_bp
 
+    app.register_blueprint(auth_bp)
     app.register_blueprint(browse_bp)
     app.register_blueprint(album_bp)
     app.register_blueprint(library_bp)

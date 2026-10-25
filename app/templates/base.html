@@ -9,13 +9,16 @@
 <body>
   <nav class="navbar">
     <a href="{{ url_for('library.index') }}" class="nav-brand">music-manager</a>
+    {% if session.user %}
     <div class="nav-links">
       <a href="{{ url_for('library.index') }}">Library</a>
       <a href="{{ url_for('failed.index') }}">Failed</a>
       <a href="{{ url_for('queue.index') }}">Queue</a>
       <a href="{{ url_for('browse.index') }}">Browse</a>
       <a href="{{ url_for('wishlist.index') }}">Wishlist</a>
+      <form method="post" action="{{ url_for('auth.logout') }}"><button type="submit" class="nav-logout">Log out</button></form>
     </div>
+    {% endif %}
   </nav>
   <main class="main-content">
     {% block content %}{% endblock %}

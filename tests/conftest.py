@@ -3,6 +3,7 @@ import subprocess
 import sys
 from unittest.mock import MagicMock
 
+import bcrypt
 import pytest
 
 os.environ["WATCHER_DISABLE"] = "1"
@@ -19,6 +20,9 @@ import app.beets_api  # noqa: E402 — must run after sys.modules stubs are in p
 
 from app import create_app
 
+TEST_PASSWORD = "correct horse battery staple"
+TEST_PASSWORD_HASH = bcrypt.hashpw(TEST_PASSWORD.encode(), bcrypt.gensalt(rounds=4)).decode()
+
 
 @pytest.fixture
 def app(tmp_path):
@@ -33,6 +37,8 @@ def app(tmp_path):
     if hasattr(cfg, "IMPORT_STAGE_DIR"):
         cfg.IMPORT_STAGE_DIR = str(tmp_path / "import-stage")
     (tmp_path / "import-queue").mkdir()
+    cfg.SECRET_KEY = "test-secret"
+    cfg.AUTH_PASSWORD_HASH = TEST_PASSWORD_HASH
 
     flask_app = create_app()
     flask_app.config["TESTING"] = True
@@ -40,8 +46,16 @@ def app(tmp_path):
 
 
 @pytest.fixture
-def client(app):
+def anon_client(app):
     return app.test_client()
+
+
+@pytest.fixture
+def client(app):
+    c = app.test_client()
+    with c.session_transaction() as sess:
+        sess["user"] = "cjcon90"
+    return c
 
 
 @pytest.fixture(scope="session")

@@ -44,6 +44,23 @@ body {
 .nav-links { display: flex; gap: 20px; }
 .nav-links a { color: var(--text-secondary); text-decoration: none; font-size: 13px; }
 .nav-links a:hover { color: var(--text-primary); }
+.nav-logout { background: none; border: none; color: var(--text-tertiary); font: inherit; font-size: 13px; cursor: pointer; }
+.nav-logout:hover { color: var(--text-primary); }
+
+.login-form { display: flex; flex-direction: column; gap: 8px; max-width: 320px; margin: 48px auto; }
+.login-form label { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; }
+/* 16px stops iOS zooming into the field */
+.login-form input {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 4px;
+  padding: 10px;
+  color: var(--text-primary);
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+.login-form .btn { padding: 10px; font-size: 14px; }
+.login-error { color: var(--red); font-size: 13px; }
 
 .main-content { padding: 24px; max-width: 1200px; margin: 0 auto; }
 

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Log in — music-manager{% endblock %}
+{% block content %}
+
+<form method="post" class="login-form">
+  <label for="username">Username</label>
+  <input id="username" name="username" type="text" autocomplete="username" autocapitalize="none" required autofocus>
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" required>
+  {% if error %}<div class="login-error">{{ error }}</div>{% endif %}
+  <button type="submit" class="btn btn-primary">Log in</button>
+</form>
+
+{% endblock %}
