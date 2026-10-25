@@ -100,10 +100,7 @@ def _attempt_search(artist: str, album: str, probe: ProbeResult) -> str | None:
     best_score = 0.0
 
     for c in top:
-        try:
-            detail = get_release_by_id(c["id"])
-        except Exception:
-            continue
+        detail = get_release_by_id(c["id"])
         mb_titles = [t["title"] for t in detail["tracks"]]
         score = track_title_score(probe.track_titles, mb_titles)
         if score > best_score:

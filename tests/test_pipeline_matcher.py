@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from app.pipeline.matcher import (
     MATCH_THRESHOLD,
@@ -371,6 +372,18 @@ def test_find_best_release_exact_match(mock_search, mock_detail):
     mock_search.return_value = [_candidate("mb-123", track_count=3)]
     mock_detail.return_value = _detail("mb-123", MB_TITLES)
     assert find_best_release(probe) == "mb-123"
+
+
+@patch("app.pipeline.matcher.get_release_by_id")
+@patch("app.pipeline.matcher.search_releases")
+def test_find_best_release_raises_when_mb_detail_fails(mock_search, mock_detail):
+    """An MB outage must surface as a failure, not as an unmatched import."""
+    probe = ProbeResult(artist="Die Antwoord", album="Ten$ion", track_count=3,
+                        track_titles=MB_TITLES)
+    mock_search.return_value = [_candidate("mb-123", track_count=3)]
+    mock_detail.side_effect = requests.HTTPError()
+    with pytest.raises(requests.HTTPError):
+        find_best_release(probe)
 
 
 @patch("app.pipeline.matcher.get_release_by_id")
