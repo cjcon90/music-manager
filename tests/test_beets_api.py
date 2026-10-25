@@ -36,6 +36,7 @@ def _make_album(
 def _wire(lib, albums):
     """Point lib.albums at *albums* and stub the one item-aggregate query."""
     lib.albums.return_value = albums
+    lib.directory = b"/media/music"
     rows = [a.agg_row for a in albums if a.agg_row is not None]
     lib.transaction.return_value.__enter__.return_value.query.return_value = rows
     return lib
@@ -79,6 +80,19 @@ def test_get_album_by_id_found(mock_lib_cls):
     assert result["id"] == 42
     assert result["album"] == "Ziggy"
     lib.albums.assert_called_with("id:42")
+
+
+@patch("app.beets_api.Library")
+def test_get_album_by_id_returns_absolute_path_for_relative_db_path(mock_lib_cls):
+    lib = mock_lib_cls.return_value
+    a = _make_album(id=42)
+    a.agg_row = (42, 1, 0, b"David Bowie/Ziggy Stardust (1972)/01 - Starman.flac", "FLAC")
+    _wire(lib, [a])
+
+    from app.beets_api import get_album_by_id
+    result = get_album_by_id(42)
+
+    assert result["path"] == "/media/music/David Bowie/Ziggy Stardust (1972)/01 - Starman.flac"
 
 
 @patch("app.beets_api.Library")

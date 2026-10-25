@@ -1,9 +1,10 @@
+import os
 from contextlib import contextmanager
 from typing import Any, Generator
 
 from beets.library import Library
 
-from app.config import BEETS_DB_PATH
+from app.config import BEETS_DB_PATH, MUSIC_LIBRARY_DIR
 from app.types import AlbumInfo, TrackInfo
 
 # beets query matching albums with no MusicBrainz release ID. `field::regex`
@@ -33,7 +34,7 @@ GROUP BY album_id
 @contextmanager
 def _library() -> Generator[Library, None, None]:
     """Context manager: open and close the beets Library for a single operation."""
-    lib = Library(BEETS_DB_PATH)
+    lib = Library(BEETS_DB_PATH, directory=MUSIC_LIBRARY_DIR)
     try:
         yield lib
     finally:
@@ -54,7 +55,8 @@ def _item_aggregates(lib: Any, album_id: int | None = None) -> dict[int, tuple[i
         sql, args = _ITEM_AGG_SQL.format(where="WHERE album_id = ?"), (album_id,)
     with lib.transaction() as tx:
         rows = tx.query(sql, args)
-    return {row[0]: (row[1], row[3], row[4]) for row in rows}
+    # Raw SQL skips beets' path expansion; beets 2.x stores paths relative to the library.
+    return {row[0]: (row[1], os.path.join(lib.directory, row[3]), row[4]) for row in rows}
 
 
 def _decode(value: Any) -> str | None:

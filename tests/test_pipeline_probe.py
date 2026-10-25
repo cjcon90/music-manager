@@ -1,4 +1,5 @@
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -137,6 +138,24 @@ def test_probe_flac_missing_year(tmp_path, silence_flac):
         tags.save()
     r = probe_flac(tmp_path)
     assert r.year == ""
+
+
+def test_probe_flac_reads_mp3_tags(tmp_path):
+    subprocess.run(
+        [
+            "ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", "1",
+            "-metadata", "album_artist=moodyMANN", "-metadata", "album=Silent Introduction",
+            "-metadata", "date=1997", "-metadata", "title=Misled",
+            str(tmp_path / "01. Misled.mp3"),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    r = probe_flac(tmp_path)
+    assert r.artist == "moodyMANN"
+    assert r.album == "Silent Introduction"
+    assert r.year == "1997"
+    assert r.track_titles == ["Misled"]
 
 
 def test_probe_flac_empty_dir(tmp_path):

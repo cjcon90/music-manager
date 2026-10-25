@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from mutagen.flac import FLAC
+from mutagen._file import File as MutagenFile
 
 from app.pipeline import AUDIO_EXTS
 
@@ -56,7 +56,7 @@ def probe_cue_file(dirpath: Path, cue_path: Path) -> ProbeResult:
 
 
 def probe_flac(dirpath: Path) -> ProbeResult:
-    """Read FLAC tags from all audio files in dirpath to build a ProbeResult."""
+    """Read tags from all audio files in dirpath to build a ProbeResult."""
     files = sorted(f for f in dirpath.iterdir() if f.is_file() and f.suffix.lower() in AUDIO_EXTS)
     if not files:
         return ProbeResult()
@@ -67,11 +67,8 @@ def probe_flac(dirpath: Path) -> ProbeResult:
     titles: list[str] = []
 
     for f in files:
-        if f.suffix.lower() != ".flac":
-            titles.append(f.stem)
-            continue
         try:
-            tags = FLAC(str(f))
+            tags = MutagenFile(str(f), easy=True) or {}
             if not artist:
                 artist = (tags.get("albumartist") or tags.get("artist") or [""])[0]
             if not album:
