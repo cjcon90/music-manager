@@ -151,9 +151,9 @@ def run(
                 statuses.append(_process_multi_disc(job, ctx))
 
     # Rematch safety net: the DB entries were removed up front. If nothing was
-    # imported, restore the original entries so the album doesn't vanish from
-    # the library.
-    if move and not any(s in ("imported", "duplicate") for s in statuses):
+    # imported (a duplicate skip imports nothing either), restore the original
+    # entries so the album doesn't vanish from the library.
+    if move and "imported" not in statuses:
         _restore_after_failed_rematch(root)
 
 
@@ -508,7 +508,7 @@ def _restore_after_failed_rematch(root: Path) -> None:
     log.warning("Rematch failed for %s — restoring original library entries", root)
     result = run_beet_import(str(root), mb_id=None, noincremental=True)
     _log_beet_output(result.output)
-    if result.status not in ("imported", "duplicate"):
+    if result.status != "imported":
         log_failed(str(root), "rematch-orphaned")
 
 

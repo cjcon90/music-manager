@@ -314,13 +314,15 @@ def test_normal_import_does_not_call_beet_remove(
     mock_import.assert_called_once()
 
 
+@pytest.mark.parametrize("status", ["nomatch", "duplicate"])
 @patch("app.pipeline.runner.run_beet_command")
-@patch("app.pipeline.runner.run_beet_import", return_value=ImportResult("nomatch", "Skipping.\n"))
+@patch("app.pipeline.runner.run_beet_import")
 @patch("app.pipeline.runner.probe_flac")
-def test_failed_rematch_restores_library_entries(mock_flac, mock_import, mock_cmd, tmp_path):
+def test_failed_rematch_restores_library_entries(mock_flac, mock_import, mock_cmd, status, tmp_path):
     """A rematch removes the album's DB entries before importing. If the import
     then fails, the original files must be re-imported as-is so the album does
-    not silently vanish from the library."""
+    not silently vanish from the library. A duplicate skip imported nothing too."""
+    mock_import.return_value = ImportResult(status, "")
     mock_flac.return_value = MagicMock(
         artist="A", album="B", track_count=3, track_titles=["T1", "T2", "T3"],
     )
@@ -351,9 +353,10 @@ def test_successful_rematch_does_not_restore(mock_flac, mock_import, mock_cmd, t
     assert mock_import.call_count == 1
 
 
+@pytest.mark.parametrize("status", ["nomatch", "duplicate"])
 @patch("app.pipeline.runner.run_beet_command")
 @patch("app.pipeline.runner.probe_flac")
-def test_failed_rematch_logs_orphaned_when_restore_also_fails(mock_flac, mock_cmd, tmp_path):
+def test_failed_rematch_logs_orphaned_when_restore_also_fails(mock_flac, mock_cmd, status, tmp_path):
     """If the restore import also fails, the album is truly orphaned — that must
     be visible in the failed-imports log, not buried in service logs."""
     mock_flac.return_value = MagicMock(
@@ -363,7 +366,7 @@ def test_failed_rematch_logs_orphaned_when_restore_also_fails(mock_flac, mock_cm
 
     with patch(
         "app.pipeline.runner.run_beet_import",
-        return_value=ImportResult("nomatch", "Skipping.\n"),
+        return_value=ImportResult(status, ""),
     ):
         run(str(d), noincremental=True, mb_id_override="mb-123", move=True)
 
